@@ -354,16 +354,17 @@ ON public.zones FOR SELECT USING (true);
 
 -- STEP 6: Grant Admin Access
 -- ============================================
--- NOTE: user_id is NULL initially. It will be auto-linked when the user logs in.
+-- NOTE: Set user_id directly for the super admin account
 
 INSERT INTO public.admin_users (user_id, email, role)
 VALUES (
-  NULL,
+  '39b44744-ac96-478b-b95c-5688e5c60d2f',
   'mbazzacodes@gmail.com',
   'super_admin'
 )
 ON CONFLICT (email) DO UPDATE SET
-  role = 'super_admin';
+  role = 'super_admin',
+  user_id = '39b44744-ac96-478b-b95c-5688e5c60d2f';
 
 -- STEP 7: Create Excel Import Templates Table
 -- ============================================

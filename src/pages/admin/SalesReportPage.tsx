@@ -1,1080 +1,688 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
-  BarChart3,
-  TrendingUp,
-  MapPin,
-  Users,
-  Package,
-  Calendar,
-  Smartphone,
-  Download,
-  Filter,
-  RefreshCw,
+  BarChart3, Download, FileText, Filter, Package, CreditCard, Users,
+  CheckCircle2, XCircle, Clock, RefreshCw, Calendar,
 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
+import ExcelJS from 'exceljs';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import AdminLayout from '@/components/layout/AdminLayout';
 import GlassCard from '@/components/ui/GlassCard';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-  Legend,
-} from 'recharts';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import ExcelJS from 'exceljs';
-
-interface RegionSales {
-  name: string;
-  sales: number;
-  regionId?: string;
-}
-
-interface TLPerformance {
-  id: string;
-  name: string;
-  assigned: number;
-  sold: number;
-  inHand: number;
-  soldPercentage: number;
-  regionId?: string;
-}
-
-interface InventoryTrend {
-  date: string;
-  available: number;
-  sold: number;
-  assigned: number;
-}
-
-interface StockTypeDist {
-  name: string;
-  value: number;
-  percentage: number;
-}
-
-interface SalesRecord {
-  id: string;
-  sale_date: string;
-  team_leader_id: string | null;
-  captain_id: string | null;
-  dsr_id: string | null;
-  region_id: string | null;
-  stock_type: string | null;
-  regions?: { name: string; id: string };
-  team_leaders?: { name: string; id: string; region_id?: string };
-}
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 
 interface InventoryItem {
   id: string;
+  smartcard_number: string;
+  serial_number: string;
+  stock_type: string;
   status: string;
+  payment_status: string;
+  package_status: string;
   assigned_to_type: string | null;
   assigned_to_id: string | null;
-  stock_type: string | null;
+  zone_id: string | null;
+  region_id: string | null;
   created_at: string;
-  region_id?: string | null;
+  updated_at: string;
 }
 
-interface DashboardStats {
+interface SaleRecord {
+  id: string;
+  smartcard_number: string;
+  serial_number: string;
+  stock_type: string;
+  customer_name: string | null;
+  sale_date: string;
+  payment_status: string;
+  package_status: string;
+  team_leader_id: string | null;
+  captain_id: string | null;
+  dsr_id: string | null;
+  zone_id: string | null;
+  region_id: string | null;
+  created_at: string;
+}
+
+interface Summary {
+  totalInventory: number;
+  available: number;
+  assigned: number;
+  sold: number;
+  paid: number;
+  unpaid: number;
+  packaged: number;
+  noPackage: number;
   totalSales: number;
-  totalRegions: number;
-  activeRegions: number;
-  totalTLs: number;
-  activeTLs: number;
-  avgPerTL: number;
-  totalAvailable: number;
-  totalAssigned: number;
-  totalSoldFromAssigned: number;
-  totalInHand: number;
-  conversionRate: number;
+  salesPaid: number;
+  salesUnpaid: number;
+  salesPackaged: number;
+  salesNoPackage: number;
 }
 
-const CHART_COLORS = [
-  'hsl(var(--primary))',
-  'hsl(var(--secondary))',
-  'hsl(142.1, 76.2%, 36.3%)',
-  'hsl(47.9, 95.8%, 53.1%)',
-  'hsl(280, 65%, 60%)',
-  'hsl(200, 80%, 50%)',
-  'hsl(350, 70%, 55%)',
-  'hsl(30, 80%, 55%)',
-];
+interface NameMap { [id: string]: string }
 
 export default function SalesReportPage() {
+  const { toast } = useToast();
   const { isRegionalAdmin, assignedRegionIds } = useAuth();
+
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [sales, setSales] = useState<SaleRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dateRange, setDateRange] = useState('month');
+  const [activeTab, setActiveTab] = useState('summary');
+
+  // Filters
+  const [zoneFilter, setZoneFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
-  const [stockTypeFilter, setStockTypeFilter] = useState('all');
-  const [exporting, setExporting] = useState(false);
-  
-  const [regionSales, setRegionSales] = useState<RegionSales[]>([]);
-  const [tlPerformance, setTLPerformance] = useState<TLPerformance[]>([]);
-  const [inventoryTrend, setInventoryTrend] = useState<InventoryTrend[]>([]);
-  const [stockTypeDist, setStockTypeDist] = useState<StockTypeDist[]>([]);
-  const [allRegions, setAllRegions] = useState<Array<{id: string, name: string}>>([]);
-  const [allStockTypes, setAllStockTypes] = useState<string[]>([]);
-  const [stats, setStats] = useState<DashboardStats>({
-    totalSales: 0,
-    totalRegions: 0,
-    activeRegions: 0,
-    totalTLs: 0,
-    activeTLs: 0,
-    avgPerTL: 0,
-    totalAvailable: 0,
-    totalAssigned: 0,
-    totalSoldFromAssigned: 0,
-    totalInHand: 0,
-    conversionRate: 0,
-  });
+  const [tlFilter, setTlFilter] = useState('all');
+  const [captainFilter, setCaptainFilter] = useState('all');
+  const [dsrFilter, setDsrFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
-  // Memoized calculations
-  const filteredRegionSales = useMemo(() => {
-    if (regionFilter === 'all') return regionSales;
-    return regionSales.filter(region => region.regionId === regionFilter);
-  }, [regionSales, regionFilter]);
+  // Lookup data
+  const [zones, setZones] = useState<Array<{ id: string; name: string }>>([]);
+  const [regions, setRegions] = useState<Array<{ id: string; name: string }>>([]);
+  const [teamLeaders, setTeamLeaders] = useState<Array<{ id: string; name: string }>>([]);
+  const [captains, setCaptains] = useState<Array<{ id: string; name: string }>>([]);
+  const [dsrs, setDsrs] = useState<Array<{ id: string; name: string }>>([]);
+  const [tlNames, setTlNames] = useState<NameMap>({});
+  const [captainNames, setCaptainNames] = useState<NameMap>({});
+  const [dsrNames, setDsrNames] = useState<NameMap>({});
+  const [zoneNames, setZoneNames] = useState<NameMap>({});
+  const [regionNames, setRegionNames] = useState<NameMap>({});
 
-  const filteredTLPerformance = useMemo(() => {
-    let filtered = tlPerformance;
-    if (regionFilter !== 'all') {
-      filtered = filtered.filter(tl => tl.regionId === regionFilter);
+  const fetchLookups = useCallback(async () => {
+    const [zRes, rRes, tlRes, cRes, dRes] = await Promise.all([
+      supabase.from('zones').select('id, name').order('name'),
+      supabase.from('regions').select('id, name').order('name'),
+      supabase.from('team_leaders').select('id, name').order('name'),
+      supabase.from('captains').select('id, name').order('name'),
+      supabase.from('dsrs').select('id, name').order('name'),
+    ]);
+
+    const z = zRes.data || [];
+    let r = rRes.data || [];
+    const tl = tlRes.data || [];
+    const c = cRes.data || [];
+    const d = dRes.data || [];
+
+    if (isRegionalAdmin && assignedRegionIds.length > 0) {
+      r = r.filter(reg => assignedRegionIds.includes(reg.id));
     }
-    if (stockTypeFilter !== 'all') {
-      // Filter TLs who have sales of this stock type
-      // This would require additional data, but we'll implement filtering logic
-    }
-    return filtered;
-  }, [tlPerformance, regionFilter, stockTypeFilter]);
 
-  const filteredStockTypeDist = useMemo(() => {
-    if (stockTypeFilter === 'all') return stockTypeDist;
-    return stockTypeDist.filter(stock => stock.name === stockTypeFilter);
-  }, [stockTypeDist, stockTypeFilter]);
+    setZones(z);
+    setRegions(r);
+    setTeamLeaders(tl);
+    setCaptains(c);
+    setDsrs(d);
+    setZoneNames(Object.fromEntries(z.map(x => [x.id, x.name])));
+    setRegionNames(Object.fromEntries(r.map(x => [x.id, x.name])));
+    setTlNames(Object.fromEntries(tl.map(x => [x.id, x.name])));
+    setCaptainNames(Object.fromEntries(c.map(x => [x.id, x.name])));
+    setDsrNames(Object.fromEntries(d.map(x => [x.id, x.name])));
+  }, [isRegionalAdmin, assignedRegionIds]);
 
-  useEffect(() => {
-    fetchReportData();
-  }, [dateRange]);
-
-  const getDateFilter = useCallback(() => {
-    const now = new Date();
-    switch (dateRange) {
-      case 'week':
-        const weekAgo = new Date(now);
-        weekAgo.setDate(weekAgo.getDate() - 7);
-        return { startDate: weekAgo.toISOString().split('T')[0], endDate: now.toISOString().split('T')[0] };
-      case 'month':
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        return { startDate: monthStart.toISOString().split('T')[0], endDate: now.toISOString().split('T')[0] };
-      case 'quarter':
-        const quarterStart = new Date(now);
-        quarterStart.setMonth(quarterStart.getMonth() - 3);
-        return { startDate: quarterStart.toISOString().split('T')[0], endDate: now.toISOString().split('T')[0] };
-      case 'year':
-        const yearStart = new Date(now.getFullYear(), 0, 1);
-        return { startDate: yearStart.toISOString().split('T')[0], endDate: now.toISOString().split('T')[0] };
-      default:
-        const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        return { startDate: defaultStart.toISOString().split('T')[0], endDate: now.toISOString().split('T')[0] };
-    }
-  }, [dateRange]);
-
-  const fetchReportData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { startDate } = getDateFilter();
-
-      // Build queries with region filtering for regional admins
-      let salesQuery = supabase
-        .from('sales_records')
-        .select('*, regions:region_id(name, id), team_leaders:team_leader_id(name, id, region_id)')
-        .gte('sale_date', startDate)
-        .order('sale_date', { ascending: false });
-      
-      let inventoryQuery = supabase.from('inventory')
-        .select('*, regions:region_id(name)')
-        .or('status.eq.available,status.eq.assigned,status.eq.sold');
+      let invQuery = supabase.from('inventory').select('*').limit(5000);
+      let salesQuery = supabase.from('sales_records').select('*').order('sale_date', { ascending: false }).limit(5000);
 
       if (isRegionalAdmin && assignedRegionIds.length > 0) {
+        invQuery = invQuery.in('region_id', assignedRegionIds);
         salesQuery = salesQuery.in('region_id', assignedRegionIds);
-        inventoryQuery = inventoryQuery.in('region_id', assignedRegionIds);
       }
 
-      // Fetch all required data in parallel with improved queries
-      const [
-        salesRes,
-        regionsRes,
-        teamLeadersRes,
-        inventoryRes,
-      ] = await Promise.all([
-        salesQuery,
-        supabase.from('regions').select('*').order('name'),
-        supabase.from('team_leaders').select('*, regions:region_id(name)').order('name'),
-        inventoryQuery,
-      ]);
-
-      const sales = salesRes.data || [];
-      const regions = regionsRes.data || [];
-      let teamLeaders = teamLeadersRes.data || [];
-      const allInventory = inventoryRes.data || [];
-
-      // For regional admins, filter team leaders by assigned regions
-      if (isRegionalAdmin && assignedRegionIds.length > 0) {
-        teamLeaders = teamLeaders.filter(tl => 
-          tl.region_id && assignedRegionIds.includes(tl.region_id)
-        );
-      }
-
-      // Set all regions for filter (filtered for regional admins)
-      const accessibleRegions = isRegionalAdmin && assignedRegionIds.length > 0
-        ? regions.filter(r => assignedRegionIds.includes(r.id))
-        : regions;
-      setAllRegions(accessibleRegions.map(r => ({ id: r.id, name: r.name })));
-
-      // Extract unique stock types
-      const stockTypes = [...new Set(allInventory
-        .map((item: InventoryItem) => item.stock_type)
-        .filter(Boolean))] as string[];
-      setAllStockTypes(stockTypes);
-
-      // Calculate comprehensive statistics
-      const totalAssigned = allInventory.filter((item: InventoryItem) => 
-        item.assigned_to_type === 'team_leader' && item.status !== 'sold'
-      ).length;
-      
-      const totalSold = allInventory.filter((item: InventoryItem) => 
-        item.status === 'sold'
-      ).length;
-      
-      const totalAvailable = allInventory.filter((item: InventoryItem) => 
-        item.status === 'available' && !item.assigned_to_id
-      ).length;
-
-      // Calculate sold from assigned stock
-      const soldFromAssigned = allInventory.filter((item: InventoryItem) => 
-        item.status === 'sold' && item.assigned_to_type === 'team_leader'
-      ).length;
-
-      const totalInHand = Math.max(0, totalAssigned - soldFromAssigned);
-      
-      // Calculate active TLs (TLs with sales in period)
-      const tlIdsWithSales = [...new Set(sales.map((s: SalesRecord) => s.team_leader_id).filter(Boolean))];
-      
-      // Calculate active regions (regions with sales in period)
-      const regionIdsWithSales = [...new Set(sales.map((s: SalesRecord) => s.region_id).filter(Boolean))];
-
-      // Sales by Region with region IDs
-      const regionMap: Record<string, { sales: number, id?: string }> = {};
-      sales.forEach((sale: SalesRecord) => {
-        const regionName = sale.regions?.name || 'Unassigned';
-        const regionId = sale.regions?.id || 'unassigned';
-        if (!regionMap[regionName]) {
-          regionMap[regionName] = { sales: 0, id: regionId };
-        }
-        regionMap[regionName].sales += 1;
-      });
-      
-      const regionData = Object.entries(regionMap)
-        .map(([name, data]) => ({ 
-          name, 
-          sales: data.sales, 
-          regionId: data.id 
-        }))
-        .sort((a, b) => b.sales - a.sales);
-      setRegionSales(regionData);
-
-      // Team Leader Performance - Optimized with single query
-      const tlPerformancePromises = teamLeaders.map(async (tl) => {
-        // Get assigned and sold counts in single query
-        const { data: inventoryData } = await supabase
-          .from('inventory')
-          .select('status')
-          .eq('assigned_to_type', 'team_leader')
-          .eq('assigned_to_id', tl.id);
-
-        const assigned = inventoryData?.filter(item => item.status === 'assigned').length || 0;
-        const sold = inventoryData?.filter(item => item.status === 'sold').length || 0;
-        const inHand = Math.max(0, assigned - sold);
-        const soldPercentage = assigned > 0 ? (sold / assigned) * 100 : 0;
-
-        return {
-          id: tl.id,
-          name: tl.name,
-          assigned,
-          sold,
-          inHand,
-          soldPercentage: parseFloat(soldPercentage.toFixed(1)),
-          regionId: tl.region_id,
-        };
-      });
-
-      const tlData = await Promise.all(tlPerformancePromises);
-      const sortedTlData = tlData.sort((a, b) => b.soldPercentage - a.soldPercentage);
-      setTLPerformance(sortedTlData);
-
-      // Inventory Trend (last 14 days for better insights)
-      const trendData: InventoryTrend[] = [];
-      for (let i = 13; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
-        
-        // Daily sales for this day
-        const daySales = sales.filter((s: SalesRecord) => 
-          s.sale_date.startsWith(dateStr)
-        ).length;
-        
-        // Get inventory snapshot (more efficient calculation)
-        const inventoryBeforeDate = allInventory.filter((item: InventoryItem) => 
-          new Date(item.created_at) <= date
-        );
-
-        const available = inventoryBeforeDate.filter((item: InventoryItem) => 
-          item.status === 'available' && !item.assigned_to_id
-        ).length;
-        
-        const assigned = inventoryBeforeDate.filter((item: InventoryItem) => 
-          item.assigned_to_type === 'team_leader' && item.status === 'assigned'
-        ).length;
-
-        trendData.push({
-          date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          available,
-          sold: daySales,
-          assigned,
-        });
-      }
-      setInventoryTrend(trendData);
-
-      // Stock Type Distribution with percentages
-      const stockTypeMap: Record<string, number> = {};
-      allInventory.forEach((item: InventoryItem) => {
-        const type = item.stock_type || 'Unknown';
-        stockTypeMap[type] = (stockTypeMap[type] || 0) + 1;
-      });
-      
-      const totalItems = allInventory.length;
-      const stockTypeData = Object.entries(stockTypeMap)
-        .map(([name, value]) => ({
-          name,
-          value,
-          percentage: totalItems > 0 ? (value / totalItems) * 100 : 0
-        }))
-        .filter(item => item.value > 0)
-        .sort((a, b) => b.value - a.value);
-      setStockTypeDist(stockTypeData);
-
-      // Calculate conversion rate
-      const conversionRate = totalAssigned > 0 
-        ? (soldFromAssigned / totalAssigned) * 100 
-        : 0;
-
-      // Set comprehensive stats
-      setStats({
-        totalSales: sales.length,
-        totalRegions: regions.length,
-        activeRegions: regionIdsWithSales.length,
-        totalTLs: teamLeaders.length,
-        activeTLs: tlIdsWithSales.length,
-        avgPerTL: teamLeaders.length > 0 ? Math.round(sales.length / teamLeaders.length) : 0,
-        totalAvailable,
-        totalAssigned,
-        totalSoldFromAssigned: soldFromAssigned,
-        totalInHand,
-        conversionRate: parseFloat(conversionRate.toFixed(1)),
-      });
-
-    } catch (error) {
-      console.error('Error fetching report data:', error);
+      const [invRes, salesRes] = await Promise.all([invQuery, salesQuery]);
+      setInventory(invRes.data || []);
+      setSales(salesRes.data || []);
+    } catch (err) {
+      console.error(err);
+      toast({ title: 'Error', description: 'Failed to load data', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
+  }, [isRegionalAdmin, assignedRegionIds, toast]);
+
+  useEffect(() => {
+    fetchLookups().then(() => fetchData());
+  }, [fetchLookups, fetchData]);
+
+  // Apply filters
+  const filteredInventory = inventory.filter(item => {
+    if (zoneFilter !== 'all' && item.zone_id !== zoneFilter) return false;
+    if (regionFilter !== 'all' && item.region_id !== regionFilter) return false;
+    if (tlFilter !== 'all' && !(item.assigned_to_type === 'team_leader' && item.assigned_to_id === tlFilter)) return false;
+    if (captainFilter !== 'all' && !(item.assigned_to_type === 'captain' && item.assigned_to_id === captainFilter)) return false;
+    if (dsrFilter !== 'all' && !(item.assigned_to_type === 'dsr' && item.assigned_to_id === dsrFilter)) return false;
+    if (dateFrom && item.created_at < dateFrom) return false;
+    if (dateTo && item.created_at > dateTo + 'T23:59:59') return false;
+    return true;
+  });
+
+  const filteredSales = sales.filter(item => {
+    if (zoneFilter !== 'all' && item.zone_id !== zoneFilter) return false;
+    if (regionFilter !== 'all' && item.region_id !== regionFilter) return false;
+    if (tlFilter !== 'all' && item.team_leader_id !== tlFilter) return false;
+    if (captainFilter !== 'all' && item.captain_id !== captainFilter) return false;
+    if (dsrFilter !== 'all' && item.dsr_id !== dsrFilter) return false;
+    if (dateFrom && item.sale_date < dateFrom) return false;
+    if (dateTo && item.sale_date > dateTo) return false;
+    return true;
+  });
+
+  // Summary
+  const summary: Summary = {
+    totalInventory: filteredInventory.length,
+    available: filteredInventory.filter(i => i.status === 'available').length,
+    assigned: filteredInventory.filter(i => i.status === 'assigned').length,
+    sold: filteredInventory.filter(i => i.status === 'sold').length,
+    paid: filteredInventory.filter(i => i.payment_status === 'Paid').length,
+    unpaid: filteredInventory.filter(i => i.payment_status === 'Unpaid' || i.payment_status === 'Pending').length,
+    packaged: filteredInventory.filter(i => i.package_status === 'Packaged').length,
+    noPackage: filteredInventory.filter(i => i.package_status === 'No Package' || i.package_status === 'Pending').length,
+    totalSales: filteredSales.length,
+    salesPaid: filteredSales.filter(s => s.payment_status === 'Paid').length,
+    salesUnpaid: filteredSales.filter(s => s.payment_status === 'Unpaid').length,
+    salesPackaged: filteredSales.filter(s => s.package_status === 'Packaged').length,
+    salesNoPackage: filteredSales.filter(s => s.package_status === 'No Package').length,
   };
 
-  const handleExport = async () => {
-    setExporting(true);
-    try {
-      // Create workbook
-      const workbook = new ExcelJS.Workbook();
-      
-      // Region Sales sheet
-      const regionWS = workbook.addWorksheet('Region Sales');
-      const regionData = filteredRegionSales.map(rs => ({
-        Region: rs.name,
-        Sales: rs.sales,
-        'Sales Percentage': stats.totalSales > 0 ? 
-          ((rs.sales / stats.totalSales) * 100).toFixed(1) + '%' : '0%'
-      }));
-      if (regionData.length > 0) {
-        regionWS.columns = Object.keys(regionData[0]).map(key => ({ header: key, key }));
-        regionWS.addRows(regionData);
-      }
-      
-      // TL Performance sheet
-      const tlWS = workbook.addWorksheet('TL Performance');
-      const tlData = filteredTLPerformance.map(tl => ({
-        'Team Leader': tl.name,
-        Assigned: tl.assigned,
-        Sold: tl.sold,
-        'In Hand': tl.inHand,
-        'Sold Rate': tl.soldPercentage.toFixed(1) + '%',
-        Performance: tl.soldPercentage >= 75 ? 'Excellent' : 
-                    tl.soldPercentage >= 50 ? 'Good' : 
-                    'Needs Improvement'
-      }));
-      if (tlData.length > 0) {
-        tlWS.columns = Object.keys(tlData[0]).map(key => ({ header: key, key }));
-        tlWS.addRows(tlData);
-      }
-      
-      // Stock Distribution sheet
-      const stockWS = workbook.addWorksheet('Stock Distribution');
-      const stockData = filteredStockTypeDist.map(st => ({
-        'Stock Type': st.name,
-        Count: st.value,
-        Percentage: st.percentage.toFixed(1) + '%'
-      }));
-      if (stockData.length > 0) {
-        stockWS.columns = Object.keys(stockData[0]).map(key => ({ header: key, key }));
-        stockWS.addRows(stockData);
-      }
-      
-      // Summary sheet
-      const summaryWS = workbook.addWorksheet('Summary');
-      const summaryData = [{
-        'Date Range': dateRange.charAt(0).toUpperCase() + dateRange.slice(1),
-        'Total Sales': stats.totalSales,
-        'Active Regions': stats.activeRegions,
-        'Active Team Leaders': stats.activeTLs,
-        'Conversion Rate': stats.conversionRate + '%',
-        'Available Stock': stats.totalAvailable,
-        'Assigned Stock': stats.totalAssigned,
-        'Sold from Assigned': stats.totalSoldFromAssigned,
-        'Stock in Hand': stats.totalInHand
-      }];
-      summaryWS.columns = Object.keys(summaryData[0]).map(key => ({ header: key, key }));
-      summaryWS.addRows(summaryData);
-      
-      // Generate filename with timestamp
-      const timestamp = new Date().toISOString().split('T')[0];
-      const filename = `Sales_Report_${dateRange}_${timestamp}.xlsx`;
-      
-      // Download
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
-      
-    } catch (error) {
-      console.error('Error exporting data:', error);
-    } finally {
-      setExporting(false);
-    }
+  const resetFilters = () => {
+    setZoneFilter('all');
+    setRegionFilter('all');
+    setTlFilter('all');
+    setCaptainFilter('all');
+    setDsrFilter('all');
+    setDateFrom('');
+    setDateTo('');
   };
 
-  if (loading) {
-    return (
-      <AdminLayout>
-        <div className="space-y-6">
-          <Skeleton className="h-10 w-64" />
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[...Array(6)].map((_, i) => (
-              <Skeleton key={i} className="h-24 rounded-2xl" />
-            ))}
-          </div>
-          <div className="grid grid-cols-2 gap-6">
-            <Skeleton className="h-80 rounded-2xl" />
-            <Skeleton className="h-80 rounded-2xl" />
-          </div>
+  const getFilterLabel = () => {
+    const parts: string[] = [];
+    if (zoneFilter !== 'all') parts.push(`Zone: ${zoneNames[zoneFilter]}`);
+    if (regionFilter !== 'all') parts.push(`Region: ${regionNames[regionFilter]}`);
+    if (tlFilter !== 'all') parts.push(`TL: ${tlNames[tlFilter]}`);
+    if (captainFilter !== 'all') parts.push(`Captain: ${captainNames[captainFilter]}`);
+    if (dsrFilter !== 'all') parts.push(`DSR: ${dsrNames[dsrFilter]}`);
+    if (dateFrom) parts.push(`From: ${dateFrom}`);
+    if (dateTo) parts.push(`To: ${dateTo}`);
+    return parts.length > 0 ? parts.join(' | ') : 'All Data';
+  };
+
+  // Export Excel
+  const exportExcel = async () => {
+    const wb = new ExcelJS.Workbook();
+
+    // Summary sheet
+    const ws1 = wb.addWorksheet('Summary');
+    ws1.columns = [{ header: 'Metric', key: 'metric', width: 30 }, { header: 'Count', key: 'count', width: 15 }];
+    ws1.addRow({ metric: 'Filter', count: getFilterLabel() });
+    ws1.addRow({ metric: '', count: '' });
+    ws1.addRow({ metric: 'Total Inventory', count: summary.totalInventory });
+    ws1.addRow({ metric: 'Available (Not Assigned)', count: summary.available });
+    ws1.addRow({ metric: 'In Hand (Assigned)', count: summary.assigned });
+    ws1.addRow({ metric: 'Sold', count: summary.sold });
+    ws1.addRow({ metric: 'Inv - Paid', count: summary.paid });
+    ws1.addRow({ metric: 'Inv - Unpaid', count: summary.unpaid });
+    ws1.addRow({ metric: 'Inv - Packaged', count: summary.packaged });
+    ws1.addRow({ metric: 'Inv - No Package', count: summary.noPackage });
+    ws1.addRow({ metric: '', count: '' });
+    ws1.addRow({ metric: 'Total Sales', count: summary.totalSales });
+    ws1.addRow({ metric: 'Sales - Paid', count: summary.salesPaid });
+    ws1.addRow({ metric: 'Sales - Unpaid', count: summary.salesUnpaid });
+    ws1.addRow({ metric: 'Sales - Packaged', count: summary.salesPackaged });
+    ws1.addRow({ metric: 'Sales - No Package', count: summary.salesNoPackage });
+
+    // Inventory sheet
+    const ws2 = wb.addWorksheet('Inventory');
+    ws2.columns = [
+      { header: 'Smartcard', key: 'sc', width: 18 },
+      { header: 'Serial', key: 'sn', width: 18 },
+      { header: 'Type', key: 'type', width: 14 },
+      { header: 'Status', key: 'status', width: 14 },
+      { header: 'Payment', key: 'payment', width: 12 },
+      { header: 'Package', key: 'pkg', width: 14 },
+      { header: 'Assigned To', key: 'assigned', width: 22 },
+      { header: 'Zone', key: 'zone', width: 16 },
+      { header: 'Region', key: 'region', width: 16 },
+    ];
+    filteredInventory.forEach(i => {
+      let assigned = '-';
+      if (i.assigned_to_id) {
+        const name = i.assigned_to_type === 'team_leader' ? tlNames[i.assigned_to_id]
+          : i.assigned_to_type === 'captain' ? captainNames[i.assigned_to_id]
+          : dsrNames[i.assigned_to_id];
+        assigned = `${i.assigned_to_type === 'team_leader' ? 'TL' : i.assigned_to_type === 'captain' ? 'Capt' : 'DSR'}: ${name || 'Unknown'}`;
+      }
+      ws2.addRow({
+        sc: i.smartcard_number, sn: i.serial_number, type: i.stock_type,
+        status: i.status === 'assigned' ? 'In Hand' : i.status,
+        payment: i.payment_status, pkg: i.package_status,
+        assigned, zone: i.zone_id ? zoneNames[i.zone_id] || '-' : '-',
+        region: i.region_id ? regionNames[i.region_id] || '-' : '-',
+      });
+    });
+
+    // Sales sheet
+    const ws3 = wb.addWorksheet('Sales');
+    ws3.columns = [
+      { header: 'Smartcard', key: 'sc', width: 18 },
+      { header: 'Serial', key: 'sn', width: 18 },
+      { header: 'Customer', key: 'cust', width: 20 },
+      { header: 'Sale Date', key: 'date', width: 14 },
+      { header: 'Payment', key: 'payment', width: 12 },
+      { header: 'Package', key: 'pkg', width: 14 },
+      { header: 'TL', key: 'tl', width: 18 },
+      { header: 'Captain', key: 'captain', width: 18 },
+      { header: 'DSR', key: 'dsr', width: 18 },
+      { header: 'Zone', key: 'zone', width: 16 },
+      { header: 'Region', key: 'region', width: 16 },
+    ];
+    filteredSales.forEach(s => {
+      ws3.addRow({
+        sc: s.smartcard_number, sn: s.serial_number, cust: s.customer_name || '-',
+        date: s.sale_date, payment: s.payment_status, pkg: s.package_status,
+        tl: s.team_leader_id ? tlNames[s.team_leader_id] || '-' : '-',
+        captain: s.captain_id ? captainNames[s.captain_id] || '-' : '-',
+        dsr: s.dsr_id ? dsrNames[s.dsr_id] || '-' : '-',
+        zone: s.zone_id ? zoneNames[s.zone_id] || '-' : '-',
+        region: s.region_id ? regionNames[s.region_id] || '-' : '-',
+      });
+    });
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `stocky_report_${new Date().toISOString().split('T')[0]}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: 'Exported', description: 'Excel report downloaded' });
+  };
+
+  // Export PDF
+  const exportPDF = () => {
+    const doc = new jsPDF('landscape');
+    const title = `Stocky Report - ${getFilterLabel()}`;
+    doc.setFontSize(16);
+    doc.text(title, 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 22);
+
+    // Summary table
+    doc.setFontSize(13);
+    doc.text('Summary', 14, 32);
+    autoTable(doc, {
+      startY: 36,
+      head: [['Metric', 'Count']],
+      body: [
+        ['Total Inventory', String(summary.totalInventory)],
+        ['Available (Not Assigned)', String(summary.available)],
+        ['In Hand (Assigned)', String(summary.assigned)],
+        ['Sold', String(summary.sold)],
+        ['Inv - Paid', String(summary.paid)],
+        ['Inv - Unpaid', String(summary.unpaid)],
+        ['Inv - Packaged', String(summary.packaged)],
+        ['Inv - No Package', String(summary.noPackage)],
+        ['', ''],
+        ['Total Sales', String(summary.totalSales)],
+        ['Sales - Paid', String(summary.salesPaid)],
+        ['Sales - Unpaid', String(summary.salesUnpaid)],
+        ['Sales - Packaged', String(summary.salesPackaged)],
+        ['Sales - No Package', String(summary.salesNoPackage)],
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [59, 130, 246] },
+    });
+
+    // Inventory table
+    doc.addPage();
+    doc.setFontSize(13);
+    doc.text('Inventory', 14, 15);
+    autoTable(doc, {
+      startY: 20,
+      head: [['Smartcard', 'Serial', 'Type', 'Status', 'Payment', 'Package', 'Assigned To']],
+      body: filteredInventory.slice(0, 200).map(i => {
+        let assigned = '-';
+        if (i.assigned_to_id) {
+          const name = i.assigned_to_type === 'team_leader' ? tlNames[i.assigned_to_id]
+            : i.assigned_to_type === 'captain' ? captainNames[i.assigned_to_id] : dsrNames[i.assigned_to_id];
+          assigned = `${i.assigned_to_type === 'team_leader' ? 'TL' : i.assigned_to_type === 'captain' ? 'Capt' : 'DSR'}: ${name || '?'}`;
+        }
+        return [i.smartcard_number, i.serial_number, i.stock_type,
+          i.status === 'assigned' ? 'In Hand' : i.status, i.payment_status, i.package_status, assigned];
+      }),
+      theme: 'grid',
+      headStyles: { fillColor: [59, 130, 246] },
+      styles: { fontSize: 7 },
+    });
+
+    // Sales table
+    doc.addPage();
+    doc.setFontSize(13);
+    doc.text('Sales Records', 14, 15);
+    autoTable(doc, {
+      startY: 20,
+      head: [['Smartcard', 'Serial', 'Customer', 'Date', 'Payment', 'Package', 'TL', 'Captain', 'DSR']],
+      body: filteredSales.slice(0, 200).map(s => [
+        s.smartcard_number, s.serial_number, s.customer_name || '-', s.sale_date,
+        s.payment_status, s.package_status,
+        s.team_leader_id ? tlNames[s.team_leader_id] || '-' : '-',
+        s.captain_id ? captainNames[s.captain_id] || '-' : '-',
+        s.dsr_id ? dsrNames[s.dsr_id] || '-' : '-',
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [59, 130, 246] },
+      styles: { fontSize: 7 },
+    });
+
+    doc.save(`stocky_report_${new Date().toISOString().split('T')[0]}.pdf`);
+    toast({ title: 'Exported', description: 'PDF report downloaded' });
+  };
+
+  const SummaryCard = ({ label, value, icon: Icon, color }: { label: string; value: number; icon: React.ComponentType<{ className?: string }>; color: string }) => (
+    <div className={`p-4 rounded-lg border ${color}`}>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="text-2xl font-bold">{value}</p>
         </div>
-      </AdminLayout>
-    );
-  }
-
-  // Calculate performance metrics
-  const overallSoldPercentage = stats.totalAssigned > 0 
-    ? (stats.totalSoldFromAssigned / stats.totalAssigned) * 100 
-    : 0;
+        <Icon className="h-8 w-8 opacity-50" />
+      </div>
+    </div>
+  );
 
   return (
     <AdminLayout>
       <div className="space-y-6">
-        {/* Header with Actions */}
+        {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-3xl font-display font-bold">
               <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-                Sales Analytics Dashboard
+                Sales Reports
               </span>
             </h1>
-            <p className="text-muted-foreground mt-1">Real-time analytics and performance insights</p>
+            <p className="text-muted-foreground">Generate and export detailed reports</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger className="w-[180px] glass-input">
-                <Calendar className="w-4 h-4 mr-2" />
-                <SelectValue placeholder="Select period" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="week">Last 7 Days</SelectItem>
-                <SelectItem value="month">This Month</SelectItem>
-                <SelectItem value="quarter">Last 3 Months</SelectItem>
-                <SelectItem value="year">This Year</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              onClick={fetchReportData}
-              className="glass-button"
-              disabled={loading}
-            >
-              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={exportExcel} disabled={loading} className="gap-2">
+              <Download className="h-4 w-4" />Excel
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleExport}
-              className="glass-button"
-              disabled={exporting}
-            >
-              <Download className={`w-4 h-4 mr-2 ${exporting ? 'animate-spin' : ''}`} />
-              Export
+            <Button variant="outline" onClick={exportPDF} disabled={loading} className="gap-2">
+              <FileText className="h-4 w-4" />PDF
+            </Button>
+            <Button variant="outline" onClick={fetchData} disabled={loading} className="gap-2">
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh
             </Button>
           </div>
         </div>
 
         {/* Filters */}
         <GlassCard>
-          <div className="flex flex-wrap gap-4 items-center">
-            <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Filters:</span>
-            </div>
-            <Select value={regionFilter} onValueChange={setRegionFilter}>
-              <SelectTrigger className="w-[180px] glass-input">
-                <MapPin className="w-4 h-4 mr-2" />
-                <SelectValue placeholder="All Regions" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Regions</SelectItem>
-                {allRegions.map(region => (
-                  <SelectItem key={region.id} value={region.id}>
-                    {region.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={stockTypeFilter} onValueChange={setStockTypeFilter}>
-              <SelectTrigger className="w-[180px] glass-input">
-                <Package className="w-4 h-4 mr-2" />
-                <SelectValue placeholder="All Stock Types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Stock Types</SelectItem>
-                {allStockTypes.map(type => (
-                  <SelectItem key={type} value={type}>
-                    {type}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Filter className="h-5 w-5 text-primary" />Filters
+            </h3>
+            <Button variant="outline" size="sm" onClick={resetFilters}>Clear All</Button>
           </div>
-        </GlassCard>
-
-        {/* Summary Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <GlassCard className="text-center hover:shadow-lg transition-shadow">
-            <Package className="h-6 w-6 mx-auto text-green-500 mb-2" />
-            <p className="text-2xl font-bold">{stats.totalAvailable}</p>
-            <p className="text-xs text-muted-foreground">Available Stock</p>
-            <Badge variant="outline" className="mt-2 text-xs">
-              {stats.totalAssigned > 0 
-                ? `${((stats.totalAvailable / (stats.totalAvailable + stats.totalAssigned)) * 100).toFixed(0)}% of total`
-                : '100% of total'}
-            </Badge>
-          </GlassCard>
-          <GlassCard className="text-center hover:shadow-lg transition-shadow">
-            <Users className="h-6 w-6 mx-auto text-blue-500 mb-2" />
-            <p className="text-2xl font-bold">{stats.totalAssigned}</p>
-            <p className="text-xs text-muted-foreground">Assigned to TLs</p>
-            <Badge variant="outline" className="mt-2 text-xs">
-              {stats.activeTLs} active TLs
-            </Badge>
-          </GlassCard>
-          <GlassCard className="text-center hover:shadow-lg transition-shadow">
-            <TrendingUp className="h-6 w-6 mx-auto text-primary mb-2" />
-            <p className="text-2xl font-bold">{stats.totalSoldFromAssigned}</p>
-            <p className="text-xs text-muted-foreground">Sold from Assigned</p>
-            <Badge variant="outline" className="mt-2 text-xs bg-primary/10 text-primary">
-              {stats.conversionRate}% conversion
-            </Badge>
-          </GlassCard>
-          <GlassCard className="text-center hover:shadow-lg transition-shadow">
-            <Smartphone className="h-6 w-6 mx-auto text-purple-500 mb-2" />
-            <p className="text-2xl font-bold">{stats.totalInHand}</p>
-            <p className="text-xs text-muted-foreground">In Hand with TLs</p>
-            <Badge variant="outline" className="mt-2 text-xs">
-              {stats.totalAssigned > 0 
-                ? `${((stats.totalInHand / stats.totalAssigned) * 100).toFixed(0)}% of assigned`
-                : '0%'}
-            </Badge>
-          </GlassCard>
-        </div>
-
-        {/* Performance Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <GlassCard className="text-center hover:shadow-lg transition-shadow">
-            <BarChart3 className="h-6 w-6 mx-auto text-orange-500 mb-2" />
-            <p className="text-2xl font-bold">{stats.conversionRate}%</p>
-            <p className="text-xs text-muted-foreground">Overall Conversion Rate</p>
-            <div className="mt-2 w-full bg-muted rounded-full h-2" aria-hidden="true">
-              <div 
-                className="h-full bg-gradient-to-r from-orange-500 to-yellow-500 rounded-full transition-all"
-                style={{ width: `${Math.min(stats.conversionRate, 100)}%` }}
-                aria-hidden="true"
-              />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="text-sm font-medium mb-1 block">Zone</label>
+              <Select value={zoneFilter} onValueChange={setZoneFilter}>
+                <SelectTrigger><SelectValue placeholder="All Zones" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Zones</SelectItem>
+                  {zones.map(z => <SelectItem key={z.id} value={z.id}>{z.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-          </GlassCard>
-          <GlassCard className="text-center hover:shadow-lg transition-shadow">
-            <TrendingUp className="h-6 w-6 mx-auto text-secondary mb-2" />
-            <p className="text-2xl font-bold">{stats.totalSales}</p>
-            <p className="text-xs text-muted-foreground">Total Sales ({dateRange})</p>
-            <Badge variant="outline" className="mt-2 text-xs">
-              {stats.activeRegions} active regions
-            </Badge>
-          </GlassCard>
-          <GlassCard className="text-center hover:shadow-lg transition-shadow">
-            <Users className="h-6 w-6 mx-auto text-primary mb-2" />
-            <p className="text-2xl font-bold">{stats.avgPerTL}</p>
-            <p className="text-xs text-muted-foreground">Avg Sales per TL</p>
-            <Badge variant="outline" className="mt-2 text-xs">
-              {stats.activeTLs}/{stats.totalTLs} TLs active
-            </Badge>
-          </GlassCard>
-        </div>
-
-        {/* Charts Row 1 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Sales by Region */}
-          <GlassCard className="hover:shadow-lg transition-shadow">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-primary" />
-                Top Regions by Sales
-              </h3>
-              <Badge variant="outline">
-                {filteredRegionSales.length} regions
-              </Badge>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Region</label>
+              <Select value={regionFilter} onValueChange={setRegionFilter}>
+                <SelectTrigger><SelectValue placeholder="All Regions" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Regions</SelectItem>
+                  {regions.map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={filteredRegionSales.slice(0, 8)} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis 
-                    type="number" 
-                    stroke="hsl(var(--muted-foreground))" 
-                    fontSize={12}
-                    tickFormatter={(value) => value.toLocaleString()}
-                  />
-                  <YAxis 
-                    dataKey="name" 
-                    type="category" 
-                    width={100} 
-                    stroke="hsl(var(--muted-foreground))" 
-                    fontSize={11}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '12px',
-                      padding: '12px',
-                    }}
-                    formatter={(value) => [`${value} sales`, 'Count']}
-                    labelFormatter={(label) => `Region: ${label}`}
-                  />
-                  <Bar 
-                    dataKey="sales" 
-                    fill="hsl(var(--primary))" 
-                    radius={[0, 8, 8, 0]}
-                    name="Sales Count"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Team Leader</label>
+              <Select value={tlFilter} onValueChange={setTlFilter}>
+                <SelectTrigger><SelectValue placeholder="All TLs" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Team Leaders</SelectItem>
+                  {teamLeaders.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-            {filteredRegionSales.length > 8 && (
-              <p className="text-xs text-muted-foreground mt-2 text-center">
-                Showing top 8 of {filteredRegionSales.length} regions
-              </p>
-            )}
-          </GlassCard>
-
-          {/* Stock Type Distribution */}
-          <GlassCard className="hover:shadow-lg transition-shadow">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <Package className="h-5 w-5 text-secondary" />
-                Stock Type Distribution
-              </h3>
-              <Badge variant="outline">
-                {filteredStockTypeDist.length} types
-              </Badge>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Captain</label>
+              <Select value={captainFilter} onValueChange={setCaptainFilter}>
+                <SelectTrigger><SelectValue placeholder="All Captains" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Captains</SelectItem>
+                  {captains.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={filteredStockTypeDist}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={2}
-                    dataKey="value"
-                    label={({ name, percentage }) => `${name} (${percentage.toFixed(0)}%)`}
-                    labelLine={false}
-                  >
-                    {filteredStockTypeDist.map((_, index) => (
-                      <Cell 
-                        key={`cell-${index}`} 
-                        fill={CHART_COLORS[index % CHART_COLORS.length]} 
-                        stroke="hsl(var(--card))"
-                        strokeWidth={2}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '12px',
-                      padding: '12px',
-                    }}
-                    formatter={(value, name, props) => {
-                      const percentage = props.payload.percentage;
-                      return [
-                        `${value} units (${percentage.toFixed(1)}%)`,
-                        'Stock Type'
-                      ];
-                    }}
-                  />
-                  <Legend 
-                    verticalAlign="bottom" 
-                    height={36}
-                    formatter={(value, entry) => (
-                      <span className="text-xs">{value}</span>
-                    )}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+            <div>
+              <label className="text-sm font-medium mb-1 block">DSR</label>
+              <Select value={dsrFilter} onValueChange={setDsrFilter}>
+                <SelectTrigger><SelectValue placeholder="All DSRs" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All DSRs</SelectItem>
+                  {dsrs.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-          </GlassCard>
-        </div>
-
-        {/* Charts Row 2 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Team Leader Performance */}
-          <GlassCard className="hover:shadow-lg transition-shadow">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <Users className="h-5 w-5 text-primary" />
-                Team Leader Stock Performance
-              </h3>
-              <Badge variant="outline">
-                Top {Math.min(8, filteredTLPerformance.length)} TLs
-              </Badge>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Date From</label>
+              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
             </div>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={filteredTLPerformance.slice(0, 8)}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis 
-                    dataKey="name" 
-                    stroke="hsl(var(--muted-foreground))" 
-                    fontSize={10} 
-                    angle={-45} 
-                    textAnchor="end" 
-                    height={60}
-                    interval={0}
-                  />
-                  <YAxis 
-                    stroke="hsl(var(--muted-foreground))" 
-                    fontSize={12}
-                    tickFormatter={(value) => value.toLocaleString()}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '12px',
-                      padding: '12px',
-                    }}
-                    formatter={(value, name) => {
-                      const labels: Record<string, string> = {
-                        'assigned': 'Assigned Stock',
-                        'sold': 'Sold Stock',
-                        'inHand': 'In Hand'
-                      };
-                      return [`${value} units`, labels[name] || name];
-                    }}
-                    labelFormatter={(label) => `TL: ${label}`}
-                  />
-                  <Legend />
-                  <Bar 
-                    dataKey="assigned" 
-                    name="Assigned Stock" 
-                    fill="hsl(200, 80%, 50%)" 
-                    radius={[4, 4, 0, 0]}
-                    stackId="a"
-                  />
-                  <Bar 
-                    dataKey="sold" 
-                    name="Sold Stock" 
-                    fill="hsl(var(--primary))" 
-                    radius={[4, 4, 0, 0]}
-                    stackId="a"
-                  />
-                  <Bar 
-                    dataKey="inHand" 
-                    name="In Hand" 
-                    fill="hsl(142.1, 76.2%, 36.3%)" 
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </GlassCard>
-
-          {/* Sales Trend */}
-          <GlassCard className="hover:shadow-lg transition-shadow">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-secondary" />
-                14-Day Sales & Stock Trend
-              </h3>
-              <Badge variant="outline">
-                Daily tracking
-              </Badge>
-            </div>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={inventoryTrend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="hsl(var(--muted-foreground))" 
-                    fontSize={12}
-                  />
-                  <YAxis 
-                    stroke="hsl(var(--muted-foreground))" 
-                    fontSize={12}
-                    tickFormatter={(value) => value.toLocaleString()}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '12px',
-                      padding: '12px',
-                    }}
-                    formatter={(value, name) => {
-                      const labels: Record<string, string> = {
-                        'sold': 'Daily Sales',
-                        'available': 'Available Stock',
-                        'assigned': 'Assigned Stock'
-                      };
-                      return [`${value} units`, labels[name] || name];
-                    }}
-                    labelFormatter={(label) => `Date: ${label}`}
-                  />
-                  <Legend />
-                  <Line 
-                    type="monotone" 
-                    dataKey="sold" 
-                    name="Daily Sales" 
-                    stroke="hsl(var(--primary))" 
-                    strokeWidth={3} 
-                    dot={{ fill: 'hsl(var(--primary))', r: 4 }}
-                    activeDot={{ r: 6 }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="assigned" 
-                    name="Assigned Stock" 
-                    stroke="hsl(200, 80%, 50%)" 
-                    strokeWidth={2} 
-                    dot={{ fill: 'hsl(200, 80%, 50%)', r: 3 }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="available" 
-                    name="Available Stock" 
-                    stroke="hsl(142.1, 76.2%, 36.3%)" 
-                    strokeWidth={2} 
-                    dot={{ fill: 'hsl(142.1, 76.2%, 36.3%)', r: 3 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </GlassCard>
-        </div>
-
-        {/* TL Stock Details Table */}
-        <GlassCard className="hover:shadow-lg transition-shadow">
-          <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center gap-3">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <Users className="h-5 w-5 text-primary" />
-                Team Leader Performance Details
-              </h3>
-              <Badge variant="outline">
-                {filteredTLPerformance.length} team leaders
-              </Badge>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              Sorted by conversion rate
+            <div>
+              <label className="text-sm font-medium mb-1 block">Date To</label>
+              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border/50">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Rank</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Team Leader</th>
-                  <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">Assigned Stock</th>
-                  <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">Sold Stock</th>
-                  <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">In Hand</th>
-                  <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">Sold Rate</th>
-                  <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">Performance</th>
-                  <th className="text-center py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTLPerformance.map((tl, idx) => {
-                  const performanceColor = tl.soldPercentage >= 75 ? 'text-green-600' : 
-                                          tl.soldPercentage >= 50 ? 'text-yellow-600' : 'text-red-600';
-                  const performanceLevel = tl.soldPercentage >= 75 ? 'Excellent' : 
-                                          tl.soldPercentage >= 50 ? 'Good' : 'Needs Attention';
-                  const performanceBg = tl.soldPercentage >= 75 ? 'bg-green-500/10' : 
-                                      tl.soldPercentage >= 50 ? 'bg-yellow-500/10' : 'bg-red-500/10';
-                  
-                  return (
-                    <tr key={tl.id} className="border-b border-border/30 hover:bg-primary/5 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                          <span className="text-sm font-medium">{idx + 1}</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 font-medium">{tl.name}</td>
-                      <td className="py-3 px-4 text-center">
-                        <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full bg-blue-500/10 text-blue-600 text-sm font-medium">
-                          {tl.assigned}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium">
-                          {tl.sold}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 rounded-full bg-green-500/10 text-green-600 text-sm font-medium">
-                          {tl.inHand}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className={`text-sm font-medium ${performanceColor}`}>
-                          {tl.soldPercentage.toFixed(1)}%
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <div className="w-full bg-muted/50 rounded-full h-2 overflow-hidden" aria-hidden="true">
-                          <div
-                            className={`h-full rounded-full transition-all ${
-                              tl.soldPercentage >= 75 ? 'bg-gradient-to-r from-green-500 to-emerald-500' :
-                              tl.soldPercentage >= 50 ? 'bg-gradient-to-r from-yellow-500 to-amber-500' :
-                              'bg-gradient-to-r from-red-500 to-pink-500'
-                            }`}
-                            style={{ width: `${Math.min(tl.soldPercentage, 100)}%` }}
-                            aria-hidden="true"
-                          />
-                        </div>
-                        <span className="text-xs text-muted-foreground mt-1 block">
-                          {performanceLevel}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <Badge className={`${performanceBg} border-0`}>
-                          {tl.assigned > 0 ? 'Active' : 'Inactive'}
-                        </Badge>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {filteredTLPerformance.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="py-8 text-center text-muted-foreground">
-                      No team leaders found for selected filters
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          {filteredTLPerformance.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-border/50">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground">Avg Sold Rate</p>
-                  <p className="text-lg font-bold">
-                    {filteredTLPerformance.length > 0 
-                      ? (filteredTLPerformance.reduce((acc, tl) => acc + tl.soldPercentage, 0) / filteredTLPerformance.length).toFixed(1)
-                      : '0'}%
-                  </p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground">Total Assigned</p>
-                  <p className="text-lg font-bold">
-                    {filteredTLPerformance.reduce((acc, tl) => acc + tl.assigned, 0)}
-                  </p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground">Total Sold</p>
-                  <p className="text-lg font-bold">
-                    {filteredTLPerformance.reduce((acc, tl) => acc + tl.sold, 0)}
-                  </p>
-                </div>
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground">Total in Hand</p>
-                  <p className="text-lg font-bold">
-                    {filteredTLPerformance.reduce((acc, tl) => acc + tl.inHand, 0)}
-                  </p>
-                </div>
-              </div>
+          {getFilterLabel() !== 'All Data' && (
+            <div className="mt-3 text-sm text-muted-foreground">
+              Active: <span className="font-medium text-primary">{getFilterLabel()}</span>
             </div>
           )}
         </GlassCard>
+
+        {/* Report Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="glass-card">
+            <TabsTrigger value="summary"><BarChart3 className="h-4 w-4 mr-2" />Summary</TabsTrigger>
+            <TabsTrigger value="inventory"><Package className="h-4 w-4 mr-2" />Inventory</TabsTrigger>
+            <TabsTrigger value="sales"><CreditCard className="h-4 w-4 mr-2" />Sales</TabsTrigger>
+          </TabsList>
+
+          {/* Summary Tab */}
+          <TabsContent value="summary" className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <SummaryCard label="Total Inventory" value={summary.totalInventory} icon={Package} color="bg-blue-500/10 border-blue-500/30" />
+              <SummaryCard label="Available (Not Assigned)" value={summary.available} icon={CheckCircle2} color="bg-green-500/10 border-green-500/30" />
+              <SummaryCard label="In Hand (Assigned)" value={summary.assigned} icon={Users} color="bg-purple-500/10 border-purple-500/30" />
+              <SummaryCard label="Sold" value={summary.sold} icon={CreditCard} color="bg-amber-500/10 border-amber-500/30" />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <SummaryCard label="Inventory Paid" value={summary.paid} icon={CheckCircle2} color="bg-emerald-500/10 border-emerald-500/30" />
+              <SummaryCard label="Inventory Unpaid" value={summary.unpaid} icon={Clock} color="bg-red-500/10 border-red-500/30" />
+              <SummaryCard label="Inventory Packaged" value={summary.packaged} icon={Package} color="bg-teal-500/10 border-teal-500/30" />
+              <SummaryCard label="Inventory No Package" value={summary.noPackage} icon={XCircle} color="bg-orange-500/10 border-orange-500/30" />
+            </div>
+            <GlassCard>
+              <h3 className="text-lg font-semibold mb-4">Sales Summary</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <SummaryCard label="Total Sales" value={summary.totalSales} icon={CreditCard} color="bg-blue-500/10 border-blue-500/30" />
+                <SummaryCard label="Sales Paid" value={summary.salesPaid} icon={CheckCircle2} color="bg-emerald-500/10 border-emerald-500/30" />
+                <SummaryCard label="Sales Unpaid" value={summary.salesUnpaid} icon={Clock} color="bg-red-500/10 border-red-500/30" />
+                <SummaryCard label="Sales No Package" value={summary.salesNoPackage} icon={XCircle} color="bg-orange-500/10 border-orange-500/30" />
+              </div>
+            </GlassCard>
+          </TabsContent>
+
+          {/* Inventory Tab */}
+          <TabsContent value="inventory">
+            <GlassCard>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Inventory ({filteredInventory.length})</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Smartcard</TableHead>
+                      <TableHead>Serial</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Payment</TableHead>
+                      <TableHead>Package</TableHead>
+                      <TableHead>Assigned To</TableHead>
+                      <TableHead>Zone</TableHead>
+                      <TableHead>Region</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow><TableCell colSpan={9} className="text-center py-8">Loading...</TableCell></TableRow>
+                    ) : filteredInventory.length === 0 ? (
+                      <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No inventory matches filters</TableCell></TableRow>
+                    ) : (
+                      filteredInventory.slice(0, 100).map(item => {
+                        let assignedLabel = '-';
+                        if (item.assigned_to_id && item.assigned_to_type) {
+                          const name = item.assigned_to_type === 'team_leader' ? tlNames[item.assigned_to_id]
+                            : item.assigned_to_type === 'captain' ? captainNames[item.assigned_to_id]
+                            : dsrNames[item.assigned_to_id];
+                          const prefix = item.assigned_to_type === 'team_leader' ? 'TL' : item.assigned_to_type === 'captain' ? 'Capt' : 'DSR';
+                          assignedLabel = `${prefix}: ${name || 'Unknown'}`;
+                        }
+                        return (
+                          <TableRow key={item.id}>
+                            <TableCell className="font-mono">{item.smartcard_number}</TableCell>
+                            <TableCell className="font-mono text-sm">{item.serial_number}</TableCell>
+                            <TableCell>{item.stock_type}</TableCell>
+                            <TableCell>
+                              {item.status === 'available' && !item.assigned_to_id && (
+                                <Badge className="bg-gray-500/20 text-gray-600 border-gray-500/30">Not Assigned</Badge>
+                              )}
+                              {item.status === 'available' && item.assigned_to_id && (
+                                <Badge className="bg-green-500/20 text-green-500 border-green-500/30">Available</Badge>
+                              )}
+                              {item.status === 'assigned' && (
+                                <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30">In Hand</Badge>
+                              )}
+                              {item.status === 'sold' && (
+                                <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30">Sold</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {item.payment_status === 'Paid'
+                                ? <Badge className="bg-green-500/20 text-green-500 border-green-500/30">Paid</Badge>
+                                : <Badge className="bg-red-500/20 text-red-500 border-red-500/30">{item.payment_status}</Badge>
+                              }
+                            </TableCell>
+                            <TableCell>
+                              {item.package_status === 'Packaged'
+                                ? <Badge className="bg-green-500/20 text-green-500 border-green-500/30">Packaged</Badge>
+                                : <Badge className="bg-red-500/20 text-red-500 border-red-500/30">{item.package_status}</Badge>
+                              }
+                            </TableCell>
+                            <TableCell className="text-sm">{assignedLabel}</TableCell>
+                            <TableCell>{item.zone_id ? zoneNames[item.zone_id] || '-' : '-'}</TableCell>
+                            <TableCell>{item.region_id ? regionNames[item.region_id] || '-' : '-'}</TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              {filteredInventory.length > 100 && (
+                <p className="text-sm text-muted-foreground mt-4">Showing 100 of {filteredInventory.length}. Export to see all.</p>
+              )}
+            </GlassCard>
+          </TabsContent>
+
+          {/* Sales Tab */}
+          <TabsContent value="sales">
+            <GlassCard>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Sales Records ({filteredSales.length})</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Smartcard</TableHead>
+                      <TableHead>Serial</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Payment</TableHead>
+                      <TableHead>Package</TableHead>
+                      <TableHead>TL</TableHead>
+                      <TableHead>Captain</TableHead>
+                      <TableHead>DSR</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow><TableCell colSpan={9} className="text-center py-8">Loading...</TableCell></TableRow>
+                    ) : filteredSales.length === 0 ? (
+                      <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No sales match filters</TableCell></TableRow>
+                    ) : (
+                      filteredSales.slice(0, 100).map(sale => (
+                        <TableRow key={sale.id}>
+                          <TableCell className="font-mono">{sale.smartcard_number}</TableCell>
+                          <TableCell className="font-mono text-sm">{sale.serial_number}</TableCell>
+                          <TableCell>{sale.customer_name || '-'}</TableCell>
+                          <TableCell>{sale.sale_date}</TableCell>
+                          <TableCell>
+                            {sale.payment_status === 'Paid'
+                              ? <Badge className="bg-green-500/20 text-green-500 border-green-500/30">Paid</Badge>
+                              : <Badge className="bg-red-500/20 text-red-500 border-red-500/30">Unpaid</Badge>
+                            }
+                          </TableCell>
+                          <TableCell>
+                            {sale.package_status === 'Packaged'
+                              ? <Badge className="bg-green-500/20 text-green-500 border-green-500/30">Packaged</Badge>
+                              : <Badge className="bg-red-500/20 text-red-500 border-red-500/30">No Package</Badge>
+                            }
+                          </TableCell>
+                          <TableCell>{sale.team_leader_id ? tlNames[sale.team_leader_id] || '-' : '-'}</TableCell>
+                          <TableCell>{sale.captain_id ? captainNames[sale.captain_id] || '-' : '-'}</TableCell>
+                          <TableCell>{sale.dsr_id ? dsrNames[sale.dsr_id] || '-' : '-'}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              {filteredSales.length > 100 && (
+                <p className="text-sm text-muted-foreground mt-4">Showing 100 of {filteredSales.length}. Export to see all.</p>
+              )}
+            </GlassCard>
+          </TabsContent>
+        </Tabs>
       </div>
     </AdminLayout>
   );
