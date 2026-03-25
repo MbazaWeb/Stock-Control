@@ -388,11 +388,11 @@ export default function SearchStock() {
       'Smartcard Number': item.smartcard_number,
       'Serial Number': item.serial_number,
       'Stock Type': item.stock_type,
-      'Status': item.status,
+      'Status': item.status === 'available' && !item.assigned_to_name ? 'Available - Not Assigned' : item.status,
       'Payment Status': item.payment_status,
       'Package Status': item.package_status,
-      'Assigned To Type': item.assigned_to_type || '-',
-      'Assigned To': item.assigned_to_name || item.team_leader?.name || item.captain?.name || item.dsr?.name || '-',
+      'Assigned To Type': item.assigned_to_type || (item.status === 'available' ? 'Not Assigned' : '-'),
+      'Assigned To': item.assigned_to_name || item.team_leader?.name || item.captain?.name || item.dsr?.name || (item.status === 'available' ? 'Not Assigned' : '-'),
       'Zone': item.zone?.name || '-',
       'Region': item.region?.name || '-',
       'Team Leader': item.team_leader?.name || '-',
@@ -787,6 +787,23 @@ export default function SearchStock() {
                           {item.assigned_to_type === 'team_leader' && getTeamBadge('tl', item.assigned_to_name)}
                           {item.assigned_to_type === 'captain' && getTeamBadge('captain', item.assigned_to_name)}
                           {item.assigned_to_type === 'dsr' && getTeamBadge('dsr', item.assigned_to_name)}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Not Assigned (for available inventory) */}
+                    {item.source === 'inventory' && item.status === 'available' && !item.assigned_to_name && (
+                      <div className="mb-4 p-3 bg-gray-500/5 rounded-lg border border-dashed border-gray-300">
+                        <h4 className="text-sm font-medium mb-2 flex items-center gap-2 text-muted-foreground">
+                          <Package className="h-4 w-4" />
+                          Stock Status
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          <Badge className="bg-gray-500/20 text-gray-600 border-gray-500/30">
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Available - Not Assigned
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">This stock is in warehouse, ready to be assigned</span>
                         </div>
                       </div>
                     )}
