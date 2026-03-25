@@ -166,7 +166,8 @@ FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 -- STEP 3: Enable Row Level Security
 -- ============================================
 
-ALTER TABLE public.admin_users ENABLE ROW LEVEL SECURITY;
+-- NOTE: admin_users has RLS DISABLED to avoid chicken-and-egg login issues
+ALTER TABLE public.admin_users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.admin_region_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.captains ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dsrs ENABLE ROW LEVEL SECURITY;
@@ -272,19 +273,7 @@ DROP POLICY IF EXISTS "Public read sales_records" ON public.sales_records;
 DROP POLICY IF EXISTS "Public read team_leaders" ON public.team_leaders;
 DROP POLICY IF EXISTS "Public read zones" ON public.zones;
 
--- Admin Users Policies
-CREATE POLICY "Super admins can manage admin_users"
-ON public.admin_users FOR ALL
-USING (public.is_super_admin(auth.uid()));
-
-CREATE POLICY "Admins can view own record"
-ON public.admin_users FOR SELECT
-USING (auth.uid() = user_id OR email = (SELECT email FROM auth.users WHERE id = auth.uid()));
-
-CREATE POLICY "Admin can link own user_id"
-ON public.admin_users FOR UPDATE
-USING (email = (SELECT email FROM auth.users WHERE id = auth.uid()))
-WITH CHECK (email = (SELECT email FROM auth.users WHERE id = auth.uid()));
+-- Admin Users: RLS is DISABLED so no policies needed (avoids login chicken-and-egg issue)
 
 -- Admin Region Assignments Policies
 CREATE POLICY "Super admins can manage admin_region_assignments"
