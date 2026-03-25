@@ -102,7 +102,7 @@ export default function AdminSidebar() {
         </Link>
 
         {/* Navigation */}
-        <nav className="flex-1 space-y-2">
+        <nav className="flex-1 space-y-2 overflow-y-auto min-h-0">
           {visibleMenuItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.href;
