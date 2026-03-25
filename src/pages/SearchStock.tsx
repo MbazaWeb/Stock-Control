@@ -43,6 +43,9 @@ interface SearchResult {
   sale_date?: string;
   customer_name?: string;
   notes?: string;
+  assigned_to_type?: string | null;
+  assigned_to_id?: string | null;
+  assigned_to_name?: string | null;
   team_leader?: { name: string } | null;
   captain?: { name: string } | null;
   dsr?: { name: string } | null;
@@ -110,14 +113,28 @@ export default function SearchStock() {
           .from('inventory')
           .select(`
             id, smartcard_number, serial_number, stock_type, status, payment_status, package_status, notes, created_at,
+            assigned_to_type, assigned_to_id,
             zones:zone_id(id, name),
-            regions:region_id(id, name),
-            team_leaders:assigned_to_id(name),
-            captains:assigned_to_id(name),
-            dsrs:assigned_to_id(name)
+            regions:region_id(id, name)
           `)
           .ilike(searchType === 'smartcard' ? 'smartcard_number' : 'serial_number', `%${searchQuery}%`)
           .limit(100);
+
+        // Fetch assigned person names for inventory items
+        const inventoryWithNames = await Promise.all((inventoryData || []).map(async (item: any) => {
+          let assigned_to_name = null;
+          if (item.assigned_to_id && item.assigned_to_type) {
+            const table = item.assigned_to_type === 'team_leader' ? 'team_leaders' 
+              : item.assigned_to_type === 'captain' ? 'captains' : 'dsrs';
+            const { data: personData } = await supabase
+              .from(table)
+              .select('name')
+              .eq('id', item.assigned_to_id)
+              .single();
+            assigned_to_name = personData?.name || null;
+          }
+          return { ...item, assigned_to_name };
+        }));
 
         // Search in sales
         const { data: salesData } = await supabase
@@ -134,7 +151,7 @@ export default function SearchStock() {
           .limit(100);
 
         // Process inventory data
-        const inventoryResults = (inventoryData || []).map((item: any) => ({
+        const inventoryResults = inventoryWithNames.map((item: any) => ({
           id: item.id,
           smartcard_number: item.smartcard_number,
           serial_number: item.serial_number,
@@ -145,9 +162,12 @@ export default function SearchStock() {
           notes: item.notes,
           zone: item.zones,
           region: item.regions,
-          team_leader: item.team_leaders,
-          captain: item.captains,
-          dsr: item.dsrs,
+          assigned_to_type: item.assigned_to_type,
+          assigned_to_id: item.assigned_to_id,
+          assigned_to_name: item.assigned_to_name,
+          team_leader: item.assigned_to_type === 'team_leader' && item.assigned_to_name ? { name: item.assigned_to_name } : null,
+          captain: item.assigned_to_type === 'captain' && item.assigned_to_name ? { name: item.assigned_to_name } : null,
+          dsr: item.assigned_to_type === 'dsr' && item.assigned_to_name ? { name: item.assigned_to_name } : null,
           created_at: item.created_at,
           source: 'inventory' as const
         }));
@@ -186,46 +206,81 @@ export default function SearchStock() {
         const captainIds = captainData.data?.map(c => c.id) || [];
         const dsrIds = dsrData.data?.map(d => d.id) || [];
 
+        // Map IDs to names for lookup
+        const tlNames = Object.fromEntries(tlData.data?.map(t => [t.id, t.name]) || []);
+        const captainNames = Object.fromEntries(captainData.data?.map(c => [c.id, c.name]) || []);
+        const dsrNames = Object.fromEntries(dsrData.data?.map(d => [d.id, d.name]) || []);
+
         if (tlIds.length || captainIds.length || dsrIds.length) {
           // Search sales by person
-          let salesQuery = supabase
-            .from('sales_records')
-            .select(`
-              id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at,
-              team_leaders:team_leader_id(name),
-              captains:captain_id(name),
-              dsrs:dsr_id(name),
-              zones:zone_id(id, name),
-              regions:region_id(id, name)
-            `)
-            .limit(100);
+          let salesPromises = [];
+          if (tlIds.length) {
+            salesPromises.push(
+              supabase.from('sales_records')
+                .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+                .in('team_leader_id', tlIds)
+                .limit(50)
+            );
+          }
+          if (captainIds.length) {
+            salesPromises.push(
+              supabase.from('sales_records')
+                .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+                .in('captain_id', captainIds)
+                .limit(50)
+            );
+          }
+          if (dsrIds.length) {
+            salesPromises.push(
+              supabase.from('sales_records')
+                .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+                .in('dsr_id', dsrIds)
+                .limit(50)
+            );
+          }
 
-          if (tlIds.length) salesQuery = salesQuery.in('team_leader_id', tlIds);
-          if (captainIds.length) salesQuery = salesQuery.in('captain_id', captainIds);
-          if (dsrIds.length) salesQuery = salesQuery.in('dsr_id', dsrIds);
+          // Search inventory by person - separate queries for each type
+          let inventoryPromises = [];
+          if (tlIds.length) {
+            inventoryPromises.push(
+              supabase.from('inventory')
+                .select(`id, smartcard_number, serial_number, stock_type, status, payment_status, package_status, notes, created_at, assigned_to_type, assigned_to_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+                .in('assigned_to_id', tlIds)
+                .eq('assigned_to_type', 'team_leader')
+                .limit(50)
+            );
+          }
+          if (captainIds.length) {
+            inventoryPromises.push(
+              supabase.from('inventory')
+                .select(`id, smartcard_number, serial_number, stock_type, status, payment_status, package_status, notes, created_at, assigned_to_type, assigned_to_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+                .in('assigned_to_id', captainIds)
+                .eq('assigned_to_type', 'captain')
+                .limit(50)
+            );
+          }
+          if (dsrIds.length) {
+            inventoryPromises.push(
+              supabase.from('inventory')
+                .select(`id, smartcard_number, serial_number, stock_type, status, payment_status, package_status, notes, created_at, assigned_to_type, assigned_to_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+                .in('assigned_to_id', dsrIds)
+                .eq('assigned_to_type', 'dsr')
+                .limit(50)
+            );
+          }
 
-          const { data: salesData } = await salesQuery;
+          const salesResults = await Promise.all(salesPromises);
+          const inventoryResults = await Promise.all(inventoryPromises);
 
-          // Search inventory by person
-          let inventoryQuery = supabase
-            .from('inventory')
-            .select(`
-              id, smartcard_number, serial_number, stock_type, status, payment_status, package_status, notes, created_at,
-              zones:zone_id(id, name),
-              regions:region_id(id, name),
-              team_leaders:assigned_to_id(name),
-              captains:assigned_to_id(name),
-              dsrs:assigned_to_id(name)
-            `)
-            .limit(100);
+          // Flatten and dedupe sales
+          const allSalesData = salesResults.flatMap(r => r.data || []);
+          const uniqueSales = Array.from(new Map(allSalesData.map(s => [s.id, s])).values());
 
-          if (tlIds.length) inventoryQuery = inventoryQuery.in('assigned_to_id', tlIds).eq('assigned_to_type', 'team_leader');
-          if (captainIds.length) inventoryQuery = inventoryQuery.in('assigned_to_id', captainIds).eq('assigned_to_type', 'captain');
-          if (dsrIds.length) inventoryQuery = inventoryQuery.in('assigned_to_id', dsrIds).eq('assigned_to_type', 'dsr');
+          // Flatten and dedupe inventory
+          const allInventoryData = inventoryResults.flatMap(r => r.data || []);
+          const uniqueInventory = Array.from(new Map(allInventoryData.map(i => [i.id, i])).values());
 
-          const { data: inventoryData } = await inventoryQuery;
-
-          const salesResults = (salesData || []).map((item: any) => ({
+          const salesFormatted = uniqueSales.map((item: any) => ({
             id: item.id,
             smartcard_number: item.smartcard_number,
             serial_number: item.serial_number,
@@ -238,32 +293,42 @@ export default function SearchStock() {
             notes: item.notes,
             zone: item.zones,
             region: item.regions,
-            team_leader: item.team_leaders,
-            captain: item.captains,
-            dsr: item.dsrs,
+            team_leader: item.team_leader_id ? { name: tlNames[item.team_leader_id] || 'Unknown' } : null,
+            captain: item.captain_id ? { name: captainNames[item.captain_id] || 'Unknown' } : null,
+            dsr: item.dsr_id ? { name: dsrNames[item.dsr_id] || 'Unknown' } : null,
             created_at: item.created_at,
             source: 'sale' as const
           }));
 
-          const inventoryResults = (inventoryData || []).map((item: any) => ({
-            id: item.id,
-            smartcard_number: item.smartcard_number,
-            serial_number: item.serial_number,
-            stock_type: item.stock_type,
-            status: item.status,
-            payment_status: item.payment_status,
-            package_status: item.package_status,
-            notes: item.notes,
-            zone: item.zones,
-            region: item.regions,
-            team_leader: item.team_leaders,
-            captain: item.captains,
-            dsr: item.dsrs,
-            created_at: item.created_at,
-            source: 'inventory' as const
-          }));
+          const inventoryFormatted = uniqueInventory.map((item: any) => {
+            let assigned_to_name = null;
+            if (item.assigned_to_type === 'team_leader') assigned_to_name = tlNames[item.assigned_to_id];
+            else if (item.assigned_to_type === 'captain') assigned_to_name = captainNames[item.assigned_to_id];
+            else if (item.assigned_to_type === 'dsr') assigned_to_name = dsrNames[item.assigned_to_id];
+            
+            return {
+              id: item.id,
+              smartcard_number: item.smartcard_number,
+              serial_number: item.serial_number,
+              stock_type: item.stock_type,
+              status: item.status,
+              payment_status: item.payment_status,
+              package_status: item.package_status,
+              notes: item.notes,
+              zone: item.zones,
+              region: item.regions,
+              assigned_to_type: item.assigned_to_type,
+              assigned_to_id: item.assigned_to_id,
+              assigned_to_name,
+              team_leader: item.assigned_to_type === 'team_leader' && assigned_to_name ? { name: assigned_to_name } : null,
+              captain: item.assigned_to_type === 'captain' && assigned_to_name ? { name: assigned_to_name } : null,
+              dsr: item.assigned_to_type === 'dsr' && assigned_to_name ? { name: assigned_to_name } : null,
+              created_at: item.created_at,
+              source: 'inventory' as const
+            };
+          });
 
-          data = [...salesResults, ...inventoryResults];
+          data = [...salesFormatted, ...inventoryFormatted];
         }
       }
 
@@ -326,6 +391,8 @@ export default function SearchStock() {
       'Status': item.status,
       'Payment Status': item.payment_status,
       'Package Status': item.package_status,
+      'Assigned To Type': item.assigned_to_type || '-',
+      'Assigned To': item.assigned_to_name || item.team_leader?.name || item.captain?.name || item.dsr?.name || '-',
       'Zone': item.zone?.name || '-',
       'Region': item.region?.name || '-',
       'Team Leader': item.team_leader?.name || '-',
@@ -709,8 +776,23 @@ export default function SearchStock() {
                       </div>
                     )}
 
-                    {/* Team Assignment */}
-                    {(item.team_leader || item.captain || item.dsr) && (
+                    {/* Stock Assignment (for inventory) */}
+                    {item.source === 'inventory' && item.assigned_to_name && item.assigned_to_type && (
+                      <div className="mb-4 p-3 bg-blue-500/5 rounded-lg">
+                        <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          Assigned To
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {item.assigned_to_type === 'team_leader' && getTeamBadge('tl', item.assigned_to_name)}
+                          {item.assigned_to_type === 'captain' && getTeamBadge('captain', item.assigned_to_name)}
+                          {item.assigned_to_type === 'dsr' && getTeamBadge('dsr', item.assigned_to_name)}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Team Assignment (for sales) */}
+                    {item.source === 'sale' && (item.team_leader || item.captain || item.dsr) && (
                       <div className="mb-4 p-3 bg-secondary/5 rounded-lg">
                         <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
                           <Users className="h-4 w-4" />
