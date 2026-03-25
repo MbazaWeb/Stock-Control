@@ -87,6 +87,7 @@ export default function AdminSidebar() {
           <button
             onClick={() => setMobileOpen(true)}
             className="p-2 rounded-xl hover:bg-muted transition-colors"
+            aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
           </button>
@@ -126,6 +127,7 @@ export default function AdminSidebar() {
               <button
                 onClick={() => setMobileOpen(false)}
                 className="p-2 rounded-xl hover:bg-muted transition-colors"
+                aria-label="Close menu"
               >
                 <X className="h-5 w-5" />
               </button>

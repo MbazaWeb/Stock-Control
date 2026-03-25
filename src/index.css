@@ -162,8 +162,8 @@
   .glass-card {
     @apply rounded-2xl border;
     background: hsl(var(--glass-bg));
-    backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
     border-color: hsl(var(--glass-border));
     box-shadow: var(--shadow-glass);
   }
@@ -172,8 +172,8 @@
   .glass-button {
     @apply rounded-xl px-6 py-3 font-medium transition-all duration-300;
     background: hsl(var(--glass-bg));
-    backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
     border: 1px solid hsl(var(--glass-border));
     box-shadow: var(--shadow-glass);
   }
@@ -267,16 +267,16 @@
   .nav-glass {
     @apply fixed top-0 left-0 right-0 z-50;
     background: hsl(var(--glass-bg));
-    backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
     border-bottom: 1px solid hsl(var(--glass-border));
   }
 
   /* Sidebar Glass */
   .sidebar-glass {
     background: hsl(var(--glass-bg));
-    backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
     border-right: 1px solid hsl(var(--glass-border));
   }
 
@@ -433,12 +433,12 @@
 /* Standalone PWA mode adjustments */
 @media (display-mode: standalone) {
   body {
-    user-select: none;
     -webkit-user-select: none;
+    user-select: none;
   }
 
   input, textarea, [contenteditable] {
-    user-select: text;
     -webkit-user-select: text;
+    user-select: text;
   }
 }
