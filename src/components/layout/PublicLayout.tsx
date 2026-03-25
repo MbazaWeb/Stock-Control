@@ -7,9 +7,9 @@ interface PublicLayoutProps {
 
 export default function PublicLayout({ children }: PublicLayoutProps) {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen min-h-dvh">
       <PublicNav />
-      <main className="pt-20 pb-8 px-4 md:px-6">
+      <main className="pt-18 pb-6 px-3 md:pt-20 md:pb-8 md:px-6">
         <div className="container mx-auto max-w-7xl">
           {children}
         </div>

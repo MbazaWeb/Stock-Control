@@ -136,6 +136,19 @@
     background-image: var(--gradient-mesh);
     background-attachment: fixed;
     min-height: 100vh;
+    min-height: 100dvh;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Safe area padding for notched phones */
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -337,8 +350,8 @@
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -352,4 +365,80 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* SPA Page Transitions */
+.animate-fade-in {
+  animation: fadeSlideIn 0.3s ease-out both;
+}
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Mobile-specific overrides */
+@media (max-width: 767px) {
+  /* Tighter spacing on mobile */
+  .glass-card {
+    @apply rounded-xl;
+  }
+
+  .glass-button {
+    @apply rounded-lg px-4 py-2;
+  }
+
+  .stats-card {
+    @apply p-4;
+  }
+
+  .icon-container-gold,
+  .icon-container-blue,
+  .icon-container-glass {
+    @apply p-2 rounded-xl;
+  }
+
+  /* Prevent horizontal overflow on tables */
+  .table-glass {
+    @apply overflow-x-auto;
+  }
+
+  /* Scrollbar hidden on mobile for cleaner look */
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  /* Fix dialog/sheet widths on mobile */
+  [role="dialog"] {
+    max-width: calc(100vw - 2rem) !important;
+    margin: auto;
+  }
+}
+
+/* Touch-friendly targets */
+@media (pointer: coarse) {
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Standalone PWA mode adjustments */
+@media (display-mode: standalone) {
+  body {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  input, textarea, [contenteditable] {
+    user-select: text;
+    -webkit-user-select: text;
+  }
 }

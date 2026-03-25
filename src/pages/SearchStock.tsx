@@ -521,7 +521,7 @@ export default function SearchStock() {
         <GlassCard>
           <form onSubmit={handleSearch} className="space-y-4">
             <Tabs value={searchType} onValueChange={(v) => setSearchType(v as any)}>
-              <TabsList className="grid w-full grid-cols-3 glass-card">
+              <TabsList className="grid w-full grid-cols-3 glass-card text-xs md:text-sm">
                 <TabsTrigger value="smartcard" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
                   <Package className="h-4 w-4 mr-2" />
                   Smartcard

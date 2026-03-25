@@ -579,8 +579,8 @@ export default function InventoryPage() {
     return (
       <AdminLayout>
         <div className="space-y-6">
-          <Skeleton className="h-10 w-64" />
-          <div className="grid grid-cols-4 gap-4">
+          <Skeleton className="h-10 w-full md:w-64" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
               <Skeleton key={i} className="h-24 rounded-2xl" />
             ))}
@@ -807,7 +807,8 @@ export default function InventoryPage() {
         </GlassCard>
 
         {/* Table */}
-        <GlassCard className="overflow-hidden">
+        <GlassCard>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-border/50">
@@ -941,6 +942,7 @@ export default function InventoryPage() {
               )}
             </TableBody>
           </Table>
+          </div>
           {filteredInventory.length > 50 && (
             <div className="p-4 text-center text-muted-foreground text-sm">
               Showing 50 of {filteredInventory.length} items

@@ -15,11 +15,14 @@ import {
   ClipboardList,
   Shield,
   Search,
+  Menu,
+  X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface MenuItem {
   href: string;
@@ -48,17 +51,145 @@ export default function AdminSidebar() {
   const navigate = useNavigate();
   const { signOut, adminUser, isSuperAdmin } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const isMobile = useIsMobile();
+
+  // Close mobile drawer on route change
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
+  // Prevent body scroll when mobile drawer is open
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [mobileOpen]);
 
   const handleSignOut = async () => {
     await signOut();
     navigate('/admin/login');
   };
 
-  // Filter menu items based on user role
   const visibleMenuItems = menuItems.filter(item => 
     !item.superAdminOnly || isSuperAdmin
   );
 
+  // Mobile top bar
+  if (isMobile) {
+    return (
+      <>
+        {/* Mobile top bar */}
+        <header className="fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-between px-4 nav-glass">
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="p-2 rounded-xl hover:bg-muted transition-colors"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <Link to="/admin" className="flex items-center gap-2">
+            <div className="icon-container-gold p-2">
+              <Package className="h-4 w-4 text-foreground" />
+            </div>
+            <span className="font-display text-base font-bold">StockFlow</span>
+          </Link>
+          <div className="w-9" /> {/* Spacer for centering */}
+        </header>
+
+        {/* Overlay */}
+        {mobileOpen && (
+          <div
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm transition-opacity"
+            onClick={() => setMobileOpen(false)}
+          />
+        )}
+
+        {/* Mobile drawer */}
+        <aside
+          className={cn(
+            'fixed top-0 left-0 h-full w-72 z-[60] sidebar-glass transition-transform duration-300 ease-in-out',
+            mobileOpen ? 'translate-x-0' : '-translate-x-full'
+          )}
+        >
+          <div className="flex flex-col h-full p-4">
+            {/* Drawer header */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="icon-container-gold p-2">
+                  <Package className="h-4 w-4 text-foreground" />
+                </div>
+                <span className="font-display text-lg font-bold">StockFlow</span>
+              </div>
+              <button
+                onClick={() => setMobileOpen(false)}
+                className="p-2 rounded-xl hover:bg-muted transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Back to Public */}
+            <Link
+              to="/"
+              className="flex items-center gap-3 px-3 py-3 rounded-xl mb-3 text-sm font-medium glass-button"
+            >
+              <Home className="h-5 w-5 text-primary" />
+              <span>Public Site</span>
+            </Link>
+
+            {/* Nav items */}
+            <nav className="flex-1 space-y-1 overflow-y-auto min-h-0">
+              {visibleMenuItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = location.pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    to={item.href}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium transition-all duration-200',
+                      isActive
+                        ? 'bg-primary text-primary-foreground shadow-blue'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                    )}
+                  >
+                    <Icon className="h-5 w-5 flex-shrink-0" />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+
+            {/* User & Logout */}
+            <div className="mt-auto pt-4 border-t border-border/50">
+              {adminUser && (
+                <div className="mb-3 px-3">
+                  <p className="text-xs text-muted-foreground">Signed in as</p>
+                  <p className="text-sm font-medium truncate">{adminUser.email}</p>
+                  <span className="badge-gold text-xs mt-1 inline-block">
+                    {adminUser.role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                  </span>
+                </div>
+              )}
+              <Button
+                onClick={handleSignOut}
+                variant="ghost"
+                className="w-full flex items-center gap-3 text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <LogOut className="h-5 w-5" />
+                <span>Sign Out</span>
+              </Button>
+            </div>
+          </div>
+        </aside>
+      </>
+    );
+  }
+
+  // Desktop sidebar (unchanged)
   return (
     <aside
       className={cn(

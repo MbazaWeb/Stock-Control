@@ -322,8 +322,8 @@ export default function RecordSalePage() {
     return (
       <AdminLayout>
         <div className="space-y-6">
-          <Skeleton className="h-10 w-64" />
-          <div className="grid grid-cols-4 gap-4">
+          <Skeleton className="h-10 w-full md:w-64" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
               <Skeleton key={i} className="h-24 rounded-2xl" />
             ))}
@@ -392,7 +392,7 @@ export default function RecordSalePage() {
         {/* Search & Actions */}
         <GlassCard>
           <div className="flex flex-wrap gap-4 items-center">
-            <div className="flex-1 min-w-[200px]">
+            <div className="flex-1 min-w-0">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -412,7 +412,8 @@ export default function RecordSalePage() {
         </GlassCard>
 
         {/* Sales Table */}
-        <GlassCard className="overflow-hidden">
+        <GlassCard>
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-border/50">
@@ -544,6 +545,7 @@ export default function RecordSalePage() {
               )}
             </TableBody>
           </Table>
+          </div>
         </GlassCard>
 
         {/* Simple Add/Edit Dialog */}
