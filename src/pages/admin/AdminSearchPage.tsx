@@ -94,6 +94,48 @@ interface TeamMember {
   name: string;
 }
 
+interface InventoryRow {
+  id: string;
+  smartcard_number: string;
+  serial_number: string;
+  stock_type: string;
+  status: string;
+  payment_status: string;
+  package_status: string;
+  assigned_to_type: string | null;
+  assigned_to_id: string | null;
+  assigned_to_name?: string | null;
+  zone_id: string | null;
+  region_id: string | null;
+  notes: string | null;
+  created_at: string;
+  zones: { id: string; name: string } | null;
+  regions: { id: string; name: string } | null;
+}
+
+interface SalesRow {
+  id: string;
+  smartcard_number: string;
+  serial_number: string;
+  stock_type: string;
+  payment_status: string;
+  package_status: string;
+  sale_date: string;
+  customer_name: string | null;
+  notes: string | null;
+  zone_id: string | null;
+  region_id: string | null;
+  team_leader_id: string | null;
+  captain_id: string | null;
+  dsr_id: string | null;
+  created_at: string;
+  zones: { id: string; name: string } | null;
+  regions: { id: string; name: string } | null;
+  team_leaders: { name: string } | null;
+  captains: { name: string } | null;
+  dsrs: { name: string } | null;
+}
+
 export default function AdminSearchPage() {
   const { toast } = useToast();
   const { isRegionalAdmin, assignedRegionIds } = useAuth();
@@ -137,7 +179,7 @@ export default function AdminSearchPage() {
 
   const loadZonesAndRegions = useCallback(async () => {
     try {
-      let zoneQuery = supabase.from('zones').select('id, name').order('name');
+      const zoneQuery = supabase.from('zones').select('id, name').order('name');
       let regionQuery = supabase.from('regions').select('id, name').order('name');
 
       if (isRegionalAdmin && assignedRegionIds.length > 0) {
@@ -156,8 +198,8 @@ export default function AdminSearchPage() {
   const loadTeamMembers = useCallback(async () => {
     try {
       let tlQuery = supabase.from('team_leaders').select('id, name, region_id').order('name');
-      let captainQuery = supabase.from('captains').select('id, name, team_leaders!inner(region_id)').order('name');
-      let dsrQuery = supabase.from('dsrs').select('id, name, captains!inner(team_leaders!inner(region_id))').order('name');
+      const captainQuery = supabase.from('captains').select('id, name, team_leaders!inner(region_id)').order('name');
+      const dsrQuery = supabase.from('dsrs').select('id, name, captains!inner(team_leaders!inner(region_id))').order('name');
 
       if (isRegionalAdmin && assignedRegionIds.length > 0) {
         tlQuery = tlQuery.in('region_id', assignedRegionIds);
@@ -168,13 +210,13 @@ export default function AdminSearchPage() {
       if (tlRes.data) setTeamLeaders(tlRes.data);
       if (captainRes.data) {
         const filteredCaptains = isRegionalAdmin && assignedRegionIds.length > 0
-          ? captainRes.data.filter((c: any) => assignedRegionIds.includes(c.team_leaders?.region_id))
+          ? captainRes.data.filter((c: { team_leaders?: { region_id?: string } }) => assignedRegionIds.includes(c.team_leaders?.region_id))
           : captainRes.data;
         setCaptains(filteredCaptains);
       }
       if (dsrRes.data) {
         const filteredDsrs = isRegionalAdmin && assignedRegionIds.length > 0
-          ? dsrRes.data.filter((d: any) => assignedRegionIds.includes(d.captains?.team_leaders?.region_id))
+          ? dsrRes.data.filter((d: { captains?: { team_leaders?: { region_id?: string } } }) => assignedRegionIds.includes(d.captains?.team_leaders?.region_id))
           : dsrRes.data;
         setDsrs(filteredDsrs);
       }
@@ -219,7 +261,7 @@ export default function AdminSearchPage() {
         const { data: inventoryData } = await inventoryQuery;
 
         // Fetch assigned person names for inventory items
-        const inventoryWithNames = await Promise.all((inventoryData || []).map(async (item: any) => {
+        const inventoryWithNames = await Promise.all((inventoryData || []).map(async (item: InventoryRow) => {
           let assigned_to_name = null;
           if (item.assigned_to_id && item.assigned_to_type) {
             const table = item.assigned_to_type === 'team_leader' ? 'team_leaders'
@@ -256,7 +298,7 @@ export default function AdminSearchPage() {
         const { data: salesData } = await salesQuery;
 
         // Process inventory data
-        const inventoryResults = inventoryWithNames.map((item: any) => ({
+        const inventoryResults = inventoryWithNames.map((item: InventoryRow) => ({
           id: item.id,
           smartcard_number: item.smartcard_number,
           serial_number: item.serial_number,
@@ -280,7 +322,7 @@ export default function AdminSearchPage() {
         }));
 
         // Process sales data
-        const salesResults = (salesData || []).map((item: any) => ({
+        const salesResults = (salesData || []).map((item: SalesRow) => ({
           id: item.id,
           smartcard_number: item.smartcard_number,
           serial_number: item.serial_number,
@@ -381,7 +423,7 @@ export default function AdminSearchPage() {
           const allInventoryData = inventoryResults.flatMap(r => r.data || []);
           const uniqueInventory = Array.from(new Map(allInventoryData.map(i => [i.id, i])).values());
 
-          const salesFormatted = uniqueSales.map((item: any) => ({
+          const salesFormatted = uniqueSales.map((item: SalesRow) => ({
             id: item.id,
             smartcard_number: item.smartcard_number,
             serial_number: item.serial_number,
@@ -403,7 +445,7 @@ export default function AdminSearchPage() {
             source: 'sale' as const
           }));
 
-          const inventoryFormatted = uniqueInventory.map((item: any) => {
+          const inventoryFormatted = uniqueInventory.map((item: InventoryRow) => {
             let assigned_to_name = null;
             if (item.assigned_to_type === 'team_leader') assigned_to_name = tlNames[item.assigned_to_id];
             else if (item.assigned_to_type === 'captain') assigned_to_name = captainNames[item.assigned_to_id];
