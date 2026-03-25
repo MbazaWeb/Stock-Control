@@ -14,6 +14,7 @@ import {
   FileUp,
   ClipboardList,
   Shield,
+  Search,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
@@ -33,6 +34,7 @@ const menuItems: MenuItem[] = [
   { href: '/admin/assign-stock', label: 'Assign Stock', icon: UploadCloud },
   { href: '/admin/record-sales', label: 'Record Sales', icon: BarChart3 },
   { href: '/admin/sales-management', label: 'Sales Management', icon: ClipboardList },
+  { href: '/admin/search', label: 'Admin Search', icon: Search },
   { href: '/admin/global-import', label: 'Global Import', icon: FileUp },
   { href: '/admin/sales-team', label: 'Sales Team', icon: Users },
   { href: '/admin/zones-regions', label: 'Zones & Regions', icon: MapPin },

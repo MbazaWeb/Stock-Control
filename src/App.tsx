@@ -25,6 +25,7 @@ import SettingsPage from "./pages/admin/SettingsPage";
 import GlobalImportPage from "./pages/admin/GlobalImportPage";
 import SalesManagementPage from "./pages/admin/SalesManagementPage";
 import RegionalAdminPage from "./pages/admin/RegionalAdminPage";
+import AdminSearchPage from "./pages/admin/AdminSearchPage";
 
 import NotFound from "./pages/NotFound";
 
@@ -57,6 +58,7 @@ const App = () => (
             <Route path="/admin/zones-regions" element={<ZonesRegionsPage />} />
             <Route path="/admin/reports" element={<SalesReportPage />} />
             <Route path="/admin/sales-management" element={<SalesManagementPage />} />
+            <Route path="/admin/search" element={<AdminSearchPage />} />
             <Route path="/admin/global-import" element={<GlobalImportPage />} />
             <Route path="/admin/regional-admins" element={<RegionalAdminPage />} />
             <Route path="/admin/settings" element={<SettingsPage />} />
