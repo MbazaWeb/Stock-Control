@@ -207,6 +207,112 @@ export type Database = {
           },
         ]
       }
+      pending_sales: {
+        Row: {
+          id: string
+          inventory_id: string | null
+          smartcard_number: string
+          serial_number: string
+          stock_type: string
+          customer_name: string | null
+          sale_date: string
+          payment_status: string
+          package_status: string
+          team_leader_id: string | null
+          captain_id: string | null
+          dsr_id: string | null
+          zone_id: string | null
+          region_id: string | null
+          notes: string | null
+          approval_status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          inventory_id?: string | null
+          smartcard_number: string
+          serial_number: string
+          stock_type?: string
+          customer_name?: string | null
+          sale_date?: string
+          payment_status?: string
+          package_status?: string
+          team_leader_id?: string | null
+          captain_id?: string | null
+          dsr_id?: string | null
+          zone_id?: string | null
+          region_id?: string | null
+          notes?: string | null
+          approval_status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          inventory_id?: string | null
+          smartcard_number?: string
+          serial_number?: string
+          stock_type?: string
+          customer_name?: string | null
+          sale_date?: string
+          payment_status?: string
+          package_status?: string
+          team_leader_id?: string | null
+          captain_id?: string | null
+          dsr_id?: string | null
+          zone_id?: string | null
+          region_id?: string | null
+          notes?: string | null
+          approval_status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_sales_inventory_id_fkey"
+            columns: ["inventory_id"]
+            isOneToOne: false
+            referencedRelation: "inventory"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_sales_team_leader_id_fkey"
+            columns: ["team_leader_id"]
+            isOneToOne: false
+            referencedRelation: "team_leaders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_sales_captain_id_fkey"
+            columns: ["captain_id"]
+            isOneToOne: false
+            referencedRelation: "captains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_sales_dsr_id_fkey"
+            columns: ["dsr_id"]
+            isOneToOne: false
+            referencedRelation: "dsrs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_sales_zone_id_fkey"
+            columns: ["zone_id"]
+            isOneToOne: false
+            referencedRelation: "zones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_sales_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       regions: {
         Row: {
           created_at: string

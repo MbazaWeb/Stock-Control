@@ -17,6 +17,7 @@ import {
   Search,
   Menu,
   X,
+  ClipboardCheck,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
@@ -37,6 +38,7 @@ const menuItems: MenuItem[] = [
   { href: '/admin/assign-stock', label: 'Assign Stock', icon: UploadCloud },
   { href: '/admin/record-sales', label: 'Record Sales', icon: BarChart3 },
   { href: '/admin/sales-management', label: 'Sales Management', icon: ClipboardList },
+  { href: '/admin/sales-approval', label: 'Sales Approval', icon: ClipboardCheck },
   { href: '/admin/search', label: 'Admin Search', icon: Search },
   { href: '/admin/global-import', label: 'Global Import', icon: FileUp },
   { href: '/admin/sales-team', label: 'Sales Team', icon: Users },

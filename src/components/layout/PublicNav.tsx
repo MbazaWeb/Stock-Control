@@ -7,7 +7,8 @@ import {
   AlertTriangle,
   LogIn,
   Menu,
-  X
+  X,
+  ShoppingCart
 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,7 @@ const navItems = [
   { href: '/unpaid', label: 'Unpaid', icon: CreditCard },
   { href: '/no-package', label: 'No Package', icon: PackageX },
   { href: '/unassigned', label: 'Unassigned', icon: AlertTriangle },
+  { href: '/add-sale', label: 'Add Sale', icon: ShoppingCart },
 ];
 
 export default function PublicNav() {

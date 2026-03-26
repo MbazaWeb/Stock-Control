@@ -10,8 +10,7 @@ import PublicDashboard from "./pages/PublicDashboard";
 import SearchStock from "./pages/SearchStock";
 import UnpaidPage from "./pages/UnpaidPage";
 import NoPackagePage from "./pages/NoPackagePage";
-import UnassignedPage from "./pages/UnassignedPage";
-
+import UnassignedPage from "./pages/UnassignedPage";import AddSalePage from './pages/AddSalePage';
 // Admin Pages
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -25,8 +24,7 @@ import SettingsPage from "./pages/admin/SettingsPage";
 import GlobalImportPage from "./pages/admin/GlobalImportPage";
 import SalesManagementPage from "./pages/admin/SalesManagementPage";
 import RegionalAdminPage from "./pages/admin/RegionalAdminPage";
-import AdminSearchPage from "./pages/admin/AdminSearchPage";
-
+import AdminSearchPage from "./pages/admin/AdminSearchPage";import SalesApprovalPage from './pages/admin/SalesApprovalPage';
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -45,6 +43,7 @@ const App = () => (
             <Route path="/unpaid" element={<UnpaidPage />} />
             <Route path="/no-package" element={<NoPackagePage />} />
             <Route path="/unassigned" element={<UnassignedPage />} />
+            <Route path="/add-sale" element={<AddSalePage />} />
             
             {/* Admin Auth */}
             <Route path="/admin/login" element={<AdminLogin />} />
@@ -60,6 +59,7 @@ const App = () => (
             <Route path="/admin/sales-management" element={<SalesManagementPage />} />
             <Route path="/admin/search" element={<AdminSearchPage />} />
             <Route path="/admin/global-import" element={<GlobalImportPage />} />
+            <Route path="/admin/sales-approval" element={<SalesApprovalPage />} />
             <Route path="/admin/regional-admins" element={<RegionalAdminPage />} />
             <Route path="/admin/settings" element={<SettingsPage />} />
             

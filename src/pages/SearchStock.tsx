@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   Search, 
   Package, 
@@ -16,7 +17,8 @@ import {
   Filter,
   Download,
   Warehouse,
-  HandCoins
+  HandCoins,
+  ShoppingCart
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import PublicLayout from '@/components/layout/PublicLayout';
@@ -55,6 +57,7 @@ interface SearchResult {
   region?: { name: string } | null;
   created_at: string;
   source: 'inventory' | 'sale';
+  pending_sale?: boolean;
 }
 
 interface FilterOptions {
@@ -336,6 +339,23 @@ export default function SearchStock() {
 
       setResults(data);
       setFilteredResults(data);
+
+      // Check for pending sales on inventory items
+      const inventoryIds = data.filter(d => d.source === 'inventory').map(d => d.id);
+      if (inventoryIds.length > 0) {
+        const { data: pendingData } = await supabase
+          .from('pending_sales')
+          .select('inventory_id')
+          .in('inventory_id', inventoryIds)
+          .eq('approval_status', 'pending');
+        const pendingSet = new Set((pendingData || []).map(p => p.inventory_id));
+        const updated = data.map(item => ({
+          ...item,
+          pending_sale: item.source === 'inventory' && pendingSet.has(item.id)
+        }));
+        setResults(updated);
+        setFilteredResults(updated);
+      }
     } catch (error) {
       console.error('Search error:', error);
     } finally {
@@ -445,6 +465,15 @@ export default function SearchStock() {
   };
 
   const getStockStatusBanner = (item: SearchResult) => {
+    if (item.pending_sale) {
+      return (
+        <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+          <Clock className="h-5 w-5 text-yellow-500" />
+          <span className="text-sm font-bold text-yellow-600">PENDING APPROVAL</span>
+          <span className="text-xs text-yellow-400 ml-auto">Sale submitted, awaiting admin review</span>
+        </div>
+      );
+    }
     if (item.status === 'sold' || item.source === 'sale') {
       return (
         <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-red-500/10 border border-red-500/20">
@@ -907,13 +936,20 @@ export default function SearchStock() {
                     )}
 
                     {/* Footer */}
-                    <div className="mt-4 pt-4 border-t border-border/30 flex justify-between items-center text-xs text-muted-foreground">
+                    <div className="mt-4 pt-4 border-t border-border/30 flex flex-wrap justify-between items-center gap-2 text-xs text-muted-foreground">
                       <div>
                         Last Updated: {new Date(item.created_at).toLocaleDateString()} at{' '}
                         {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </div>
-                      <div className="text-right">
-                        Record Type: <span className="font-medium">{item.source === 'inventory' ? 'Inventory' : 'Sale'}</span>
+                      <div className="flex items-center gap-2">
+                        {item.source === 'inventory' && item.status !== 'sold' && !item.pending_sale && (
+                          <Link to={`/add-sale?inventory_id=${item.id}`}>
+                            <Button size="sm" className="h-7 text-xs bg-gradient-to-r from-primary to-secondary text-white">
+                              <ShoppingCart className="h-3 w-3 mr-1" /> Record Sale
+                            </Button>
+                          </Link>
+                        )}
+                        <span>Record Type: <span className="font-medium">{item.source === 'inventory' ? 'Inventory' : 'Sale'}</span></span>
                       </div>
                     </div>
                   </GlassCard>
