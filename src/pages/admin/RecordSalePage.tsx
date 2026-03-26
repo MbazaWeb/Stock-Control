@@ -10,6 +10,7 @@ import {
   XCircle,
   PackageOpen,
   PackageCheck,
+  Filter,
 } from 'lucide-react';
 import AdminLayout from '@/components/layout/AdminLayout';
 import GlassCard from '@/components/ui/GlassCard';
@@ -72,6 +73,11 @@ interface Region {
   zone_id: string | null;
 }
 
+interface Zone {
+  id: string;
+  name: string;
+}
+
 interface InventoryItem {
   id: string;
   smartcard_number: string;
@@ -86,7 +92,10 @@ export default function RecordSalePage() {
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [teamLeaders, setTeamLeaders] = useState<TeamLeader[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
+  const [zones, setZones] = useState<Zone[]>([]);
   const [tlStock, setTlStock] = useState<InventoryItem[]>([]);
+  const [zoneFilter, setZoneFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -114,13 +123,15 @@ export default function RecordSalePage() {
         salesQuery = salesQuery.in('region_id', assignedRegionIds);
       }
 
-      const [salesRes, tlRes, regionRes] = await Promise.all([
+      const [salesRes, tlRes, regionRes, zonesRes] = await Promise.all([
         salesQuery,
         supabase.from('team_leaders').select('id, name, region_id').order('name'),
         supabase.from('regions').select('*').order('name'),
+        supabase.from('zones').select('id, name').order('name'),
       ]);
 
       if (salesRes.data) setSales(salesRes.data);
+      if (zonesRes.data) setZones(zonesRes.data);
       // For regional admins, filter team leaders and regions
       if (tlRes.data) {
         const filteredTLs = isRegionalAdmin && assignedRegionIds.length > 0
@@ -309,13 +320,17 @@ export default function RecordSalePage() {
     }
   };
 
+  useEffect(() => { setRegionFilter('all'); }, [zoneFilter]);
+
   const filteredSales = sales.filter((s) => {
     const query = searchQuery.toLowerCase();
-    return (
+    const matchesSearch =
       s.smartcard_number.toLowerCase().includes(query) ||
       s.serial_number.toLowerCase().includes(query) ||
-      s.customer_name?.toLowerCase().includes(query)
-    );
+      s.customer_name?.toLowerCase().includes(query);
+    const matchesZone = zoneFilter === 'all' || s.zone_id === zoneFilter;
+    const matchesRegion = regionFilter === 'all' || s.region_id === regionFilter;
+    return matchesSearch && matchesZone && matchesRegion;
   });
 
   if (loading) {
@@ -390,7 +405,7 @@ export default function RecordSalePage() {
         </div>
 
         {/* Search & Actions */}
-        <GlassCard>
+        <GlassCard className="space-y-3">
           <div className="flex flex-wrap gap-4 items-center">
             <div className="flex-1 min-w-0">
               <div className="relative">
@@ -408,6 +423,26 @@ export default function RecordSalePage() {
                 <Trash2 className="w-4 h-4 mr-2" /> Delete ({selectedItems.length})
               </Button>
             )}
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={zoneFilter} onValueChange={setZoneFilter}>
+              <SelectTrigger className="w-[140px] h-8 text-xs glass-input"><SelectValue placeholder="Zone" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Zones</SelectItem>
+                {zones.map(z => <SelectItem key={z.id} value={z.id}>{z.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={regionFilter} onValueChange={setRegionFilter}>
+              <SelectTrigger className="w-[140px] h-8 text-xs glass-input"><SelectValue placeholder="Region" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Regions</SelectItem>
+                {(zoneFilter === 'all' ? regions : regions.filter(r => r.zone_id === zoneFilter)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-muted-foreground ml-auto">
+              {filteredSales.length} of {sales.length}
+            </span>
           </div>
         </GlassCard>
 

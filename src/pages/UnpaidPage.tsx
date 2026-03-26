@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CreditCard, Search, Eye, Calendar, Phone, User, Package, Users } from 'lucide-react';
+import { CreditCard, Search, Eye, Calendar, Phone, User, Package, Users, Filter } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import PublicLayout from '@/components/layout/PublicLayout';
 import GlassCard from '@/components/ui/GlassCard';
@@ -22,6 +22,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface UnpaidSale {
   id: string;
@@ -66,55 +73,71 @@ export default function UnpaidPage() {
   const [loading, setLoading] = useState(true);
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [zones, setZones] = useState<Array<{id: string; name: string}>>([]);
+  const [regions, setRegions] = useState<Array<{id: string; name: string; zone_id: string}>>([]);
+  const [zoneFilter, setZoneFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
 
   useEffect(() => {
     fetchUnpaidSales();
   }, []);
 
+  useEffect(() => { setRegionFilter('all'); }, [zoneFilter]);
+
   useEffect(() => {
+    let result = sales;
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      setFilteredSales(
-        sales.filter(
-          (s) =>
-            s.smartcard_number.toLowerCase().includes(query) ||
-            s.serial_number.toLowerCase().includes(query) ||
-            s.customer_name?.toLowerCase().includes(query) ||
-            s.team_leader?.name.toLowerCase().includes(query) ||
-            s.captain?.name.toLowerCase().includes(query) ||
-            s.dsr?.name.toLowerCase().includes(query) ||
-            s.zone?.name.toLowerCase().includes(query) ||
-            s.region?.name.toLowerCase().includes(query)
-        )
+      result = result.filter(
+        (s) =>
+          s.smartcard_number.toLowerCase().includes(query) ||
+          s.serial_number.toLowerCase().includes(query) ||
+          s.customer_name?.toLowerCase().includes(query) ||
+          s.team_leader?.name.toLowerCase().includes(query) ||
+          s.captain?.name.toLowerCase().includes(query) ||
+          s.dsr?.name.toLowerCase().includes(query) ||
+          s.zone?.name.toLowerCase().includes(query) ||
+          s.region?.name.toLowerCase().includes(query)
       );
-    } else {
-      setFilteredSales(sales);
     }
-  }, [searchQuery, sales]);
+    if (zoneFilter !== 'all') result = result.filter(s => (s.zone as any)?.id === zoneFilter);
+    if (regionFilter !== 'all') result = result.filter(s => (s.region as any)?.id === regionFilter);
+    setFilteredSales(result);
+  }, [searchQuery, sales, zoneFilter, regionFilter]);
 
   const fetchUnpaidSales = async () => {
     try {
-      const { data, error } = await supabase
-        .from('sales_records')
-        .select(`
-          id, 
-          smartcard_number, 
-          serial_number, 
-          stock_type, 
-          customer_name, 
-          customer_phone, 
-          sale_date, 
-          package_status,
-          notes,
-          created_at,
-          team_leaders:team_leader_id(name),
-          captains:captain_id(name),
-          dsrs:dsr_id(name),
-          zones:zone_id(name),
-          regions:region_id(name)
-        `)
-        .eq('payment_status', 'Unpaid')
-        .order('created_at', { ascending: false });
+      const [salesQuery, zonesRes, regionsRes] = await Promise.all([
+        supabase
+          .from('sales_records')
+          .select(`
+            id, 
+            smartcard_number, 
+            serial_number, 
+            stock_type, 
+            customer_name, 
+            customer_phone, 
+            sale_date, 
+            package_status,
+            notes,
+            created_at,
+            team_leaders:team_leader_id(name),
+            captains:captain_id(name),
+            dsrs:dsr_id(name),
+            zones:zone_id(id, name),
+            regions:region_id(id, name)
+          `)
+          .eq('payment_status', 'Unpaid')
+          .order('created_at', { ascending: false }),
+        supabase.from('zones').select('id, name').order('name'),
+        supabase.from('regions').select('id, name, zone_id').order('name'),
+      ]);
+
+      setZones(zonesRes.data || []);
+      setRegions(regionsRes.data || []);
+
+      const data = salesQuery.data;
+      const error = salesQuery.error;
 
       if (!error && data) {
         const formattedData = data.map((item: any) => ({
@@ -251,8 +274,8 @@ export default function UnpaidPage() {
           </GlassCard>
         </div>
 
-        {/* Search */}
-        <GlassCard className="p-4">
+        {/* Search & Filters */}
+        <GlassCard className="p-4 space-y-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <Input
@@ -262,7 +285,24 @@ export default function UnpaidPage() {
               className="pl-10 input-glass"
             />
           </div>
-          <div className="mt-2 flex items-center justify-between">
+          <div className="flex flex-wrap gap-2 items-center">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={zoneFilter} onValueChange={setZoneFilter}>
+              <SelectTrigger className="w-[140px] h-8 text-xs glass-input"><SelectValue placeholder="Zone" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Zones</SelectItem>
+                {zones.map(z => <SelectItem key={z.id} value={z.id}>{z.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={regionFilter} onValueChange={setRegionFilter}>
+              <SelectTrigger className="w-[140px] h-8 text-xs glass-input"><SelectValue placeholder="Region" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Regions</SelectItem>
+                {(zoneFilter === 'all' ? regions : regions.filter(r => r.zone_id === zoneFilter)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
               Showing {filteredSales.length} of {sales.length} unpaid records
             </p>

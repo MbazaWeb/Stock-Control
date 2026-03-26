@@ -14,7 +14,8 @@ import {
   Bell,
   Clock,
   Calendar,
-  FileText
+  FileText,
+  Filter
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import AdminLayout from '@/components/layout/AdminLayout';
@@ -24,6 +25,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   BarChart,
   Bar,
@@ -120,19 +128,42 @@ export default function AdminDashboard() {
   const [quickStats, setQuickStats] = useState<QuickStat[]>([]);
   const [timeRange, setTimeRange] = useState<'week' | 'month' | 'quarter'>('week');
   const [recentSales, setRecentSales] = useState<SaleRecord[]>([]);
+  const [zones, setZones] = useState<Array<{id: string; name: string}>>([]);
+  const [allRegions, setAllRegions] = useState<Array<{id: string; name: string; zone_id: string}>>([]);
+  const [zoneFilter, setZoneFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
+
+  useEffect(() => {
+    const fetchFilters = async () => {
+      const [z, r] = await Promise.all([
+        supabase.from('zones').select('id, name').order('name'),
+        supabase.from('regions').select('id, name, zone_id').order('name'),
+      ]);
+      setZones(z.data || []);
+      setAllRegions(r.data || []);
+    };
+    fetchFilters();
+  }, []);
+
+  useEffect(() => { setRegionFilter('all'); }, [zoneFilter]);
 
   useEffect(() => {
     fetchDashboardData();
-    // Set up auto-refresh every 5 minutes
     const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [zoneFilter, regionFilter]);
 
   const fetchTLStockData = async () => {
     try {
-      const { data: teamLeaders } = await supabase
-        .from('team_leaders')
-        .select('id, name, region_id, regions(name)');
+      let tlQuery = supabase.from('team_leaders').select('id, name, region_id, regions(name)');
+      if (regionFilter !== 'all') {
+        tlQuery = tlQuery.eq('region_id', regionFilter);
+      } else if (zoneFilter !== 'all') {
+        const zoneRegionIds = allRegions.filter(r => r.zone_id === zoneFilter).map(r => r.id);
+        if (zoneRegionIds.length > 0) tlQuery = tlQuery.in('region_id', zoneRegionIds);
+        else return { totalAssigned: 0, totalSold: 0, totalInHand: 0, topTLs: [] };
+      }
+      const { data: teamLeaders } = await tlQuery;
 
       if (!teamLeaders) {
         return { totalAssigned: 0, totalSold: 0, totalInHand: 0, topTLs: [] };
@@ -276,7 +307,7 @@ export default function AdminDashboard() {
   const fetchRecentSales = async () => {
     try {
       const today = new Date().toISOString().split('T')[0];
-      const { data: recentSales } = await supabase
+      let query = supabase
         .from('sales_records')
         .select(`
           id,
@@ -294,6 +325,11 @@ export default function AdminDashboard() {
         .eq('sale_date', today)
         .order('created_at', { ascending: false })
         .limit(10);
+
+      if (zoneFilter !== 'all') query = query.eq('zone_id', zoneFilter);
+      if (regionFilter !== 'all') query = query.eq('region_id', regionFilter);
+
+      const { data: recentSales } = await query;
 
       if (recentSales) {
         const formattedSales = recentSales.map(sale => ({
@@ -321,6 +357,30 @@ export default function AdminDashboard() {
 
       const tlStockData = await fetchTLStockData();
 
+      // Build filtered queries
+      const invQ = () => {
+        let q = supabase.from('inventory').select('id', { count: 'exact', head: true });
+        if (zoneFilter !== 'all') q = q.eq('zone_id', zoneFilter);
+        if (regionFilter !== 'all') q = q.eq('region_id', regionFilter);
+        return q;
+      };
+      const salesQ = (useHead = true) => {
+        let q = supabase.from('sales_records').select('id', { count: 'exact', head: useHead });
+        if (zoneFilter !== 'all') q = q.eq('zone_id', zoneFilter);
+        if (regionFilter !== 'all') q = q.eq('region_id', regionFilter);
+        return q;
+      };
+      const tlQ = () => {
+        let q = supabase.from('team_leaders').select('id', { count: 'exact', head: true });
+        if (regionFilter !== 'all') {
+          q = q.eq('region_id', regionFilter);
+        } else if (zoneFilter !== 'all') {
+          const zoneRegionIds = allRegions.filter(r => r.zone_id === zoneFilter).map(r => r.id);
+          if (zoneRegionIds.length > 0) q = q.in('region_id', zoneRegionIds);
+        }
+        return q;
+      };
+
       const [
         inventoryRes,
         availableRes,
@@ -334,26 +394,15 @@ export default function AdminDashboard() {
         captainRes,
         dsrRes,
       ] = await Promise.all([
-        supabase.from('inventory').select('id', { count: 'exact', head: true }),
-        supabase.from('inventory').select('id', { count: 'exact', head: true })
-          .eq('status', 'available')
-          .is('assigned_to_id', null),
-        supabase.from('sales_records').select('id', { count: 'exact', head: true })
-          .eq('sale_date', today),
-        supabase.from('sales_records').select('id', { count: 'exact' })
-          .gte('sale_date', startOfMonth),
-        supabase.from('sales_records').select('id', { count: 'exact', head: true })
-          .gte('sale_date', startOfLastMonth)
-          .lt('sale_date', startOfMonth),
-        supabase.from('sales_records').select('id', { count: 'exact' })
-          .eq('payment_status', 'Unpaid'),
-        supabase.from('sales_records').select('id', { count: 'exact', head: true })
-          .eq('package_status', 'No Package'),
-        supabase.from('sales_records').select('id', { count: 'exact', head: true })
-          .is('team_leader_id', null)
-          .is('captain_id', null)
-          .is('dsr_id', null),
-        supabase.from('team_leaders').select('id', { count: 'exact', head: true }),
+        invQ(),
+        invQ().eq('status', 'available').is('assigned_to_id', null),
+        salesQ().eq('sale_date', today),
+        salesQ(false).gte('sale_date', startOfMonth),
+        salesQ().gte('sale_date', startOfLastMonth).lt('sale_date', startOfMonth),
+        salesQ(false).eq('payment_status', 'Unpaid'),
+        salesQ().eq('package_status', 'No Package'),
+        salesQ().is('team_leader_id', null).is('captain_id', null).is('dsr_id', null),
+        tlQ(),
         supabase.from('captains').select('id', { count: 'exact', head: true }),
         supabase.from('dsrs').select('id', { count: 'exact', head: true }),
       ]);
@@ -395,10 +444,10 @@ export default function AdminDashboard() {
         date.setDate(date.getDate() - i);
         const dateStr = date.toISOString().split('T')[0];
         
-        const { data: dailyData } = await supabase
-          .from('sales_records')
-          .select('id')
-          .eq('sale_date', dateStr);
+        let dayQuery = supabase.from('sales_records').select('id').eq('sale_date', dateStr);
+        if (zoneFilter !== 'all') dayQuery = dayQuery.eq('zone_id', zoneFilter);
+        if (regionFilter !== 'all') dayQuery = dayQuery.eq('region_id', regionFilter);
+        const { data: dailyData } = await dayQuery;
         
         weekly.push({
           day: date.toLocaleDateString('en-US', { weekday: 'short' }),
@@ -419,11 +468,12 @@ export default function AdminDashboard() {
         const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0)
           .toISOString().split('T')[0];
         
-        const { data: monthlySales } = await supabase
-          .from('sales_records')
-          .select('id')
+        let monthQuery = supabase.from('sales_records').select('id')
           .gte('sale_date', startOfMonth)
           .lte('sale_date', endOfMonth);
+        if (zoneFilter !== 'all') monthQuery = monthQuery.eq('zone_id', zoneFilter);
+        if (regionFilter !== 'all') monthQuery = monthQuery.eq('region_id', regionFilter);
+        const { data: monthlySales } = await monthQuery;
         
         monthly.push({
           month: date.toLocaleDateString('en-US', { month: 'short' }),
@@ -622,6 +672,27 @@ export default function AdminDashboard() {
             </Button>
           </div>
         </div>
+
+        {/* Zone/Region Filter */}
+        <GlassCard className="p-3 md:p-4">
+          <div className="flex flex-wrap gap-2 items-center">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={zoneFilter} onValueChange={setZoneFilter}>
+              <SelectTrigger className="w-[130px] h-8 text-xs glass-input"><SelectValue placeholder="Zone" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Zones</SelectItem>
+                {zones.map(z => <SelectItem key={z.id} value={z.id}>{z.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={regionFilter} onValueChange={setRegionFilter}>
+              <SelectTrigger className="w-[130px] h-8 text-xs glass-input"><SelectValue placeholder="Region" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Regions</SelectItem>
+                {(zoneFilter === 'all' ? allRegions : allRegions.filter(r => r.zone_id === zoneFilter)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </GlassCard>
 
         {/* Quick Stats Bar */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">

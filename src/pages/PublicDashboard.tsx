@@ -11,6 +11,7 @@ import {
   Clock,
   Calendar,
   ShoppingCart,
+  Filter,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import PublicLayout from '@/components/layout/PublicLayout';
@@ -19,6 +20,13 @@ import GlassCard from '@/components/ui/GlassCard';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   ResponsiveContainer,
   LineChart,
@@ -96,21 +104,42 @@ export default function PublicDashboard() {
   const [tlStockData, setTlStockData] = useState<TLStockStatus[]>([]);
   const [recentSales, setRecentSales] = useState<RecentSale[]>([]);
   const [loading, setLoading] = useState(true);
+  const [zones, setZones] = useState<Array<{id: string; name: string}>>([]);
+  const [allRegions, setAllRegions] = useState<Array<{id: string; name: string; zone_id: string}>>([]);
+  const [zoneFilter, setZoneFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
+
+  useEffect(() => {
+    const fetchFilters = async () => {
+      const [z, r] = await Promise.all([
+        supabase.from('zones').select('id, name').order('name'),
+        supabase.from('regions').select('id, name, zone_id').order('name'),
+      ]);
+      setZones(z.data || []);
+      setAllRegions(r.data || []);
+    };
+    fetchFilters();
+  }, []);
+
+  useEffect(() => { setRegionFilter('all'); }, [zoneFilter]);
 
   useEffect(() => {
     fetchDashboardData();
-    
-    // Refresh data every 2 minutes
     const interval = setInterval(fetchDashboardData, 2 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [zoneFilter, regionFilter]);
 
   const fetchTLStockData = async () => {
     try {
-      const { data: teamLeaders } = await supabase
-        .from('team_leaders')
-        .select('id, name')
-        .order('name');
+      let tlQuery = supabase.from('team_leaders').select('id, name, region_id').order('name');
+      if (regionFilter !== 'all') {
+        tlQuery = tlQuery.eq('region_id', regionFilter);
+      } else if (zoneFilter !== 'all') {
+        const zoneRegionIds = allRegions.filter(r => r.zone_id === zoneFilter).map(r => r.id);
+        if (zoneRegionIds.length > 0) tlQuery = tlQuery.in('region_id', zoneRegionIds);
+        else return [];
+      }
+      const { data: teamLeaders } = await tlQuery;
 
       if (!teamLeaders) return [];
 
@@ -170,7 +199,7 @@ export default function PublicDashboard() {
   const fetchRecentSales = async () => {
     try {
       const today = new Date().toISOString().split('T')[0];
-      const { data: recentSales } = await supabase
+      let query = supabase
         .from('sales_records')
         .select(`
           id,
@@ -184,6 +213,11 @@ export default function PublicDashboard() {
         .eq('sale_date', today)
         .order('created_at', { ascending: false })
         .limit(5);
+
+      if (zoneFilter !== 'all') query = query.eq('zone_id', zoneFilter);
+      if (regionFilter !== 'all') query = query.eq('region_id', regionFilter);
+
+      const { data: recentSales } = await query;
 
       if (recentSales) {
         const formattedSales = recentSales.map(sale => ({
@@ -216,6 +250,30 @@ export default function PublicDashboard() {
 
       setTlStockData(tlStockData);
 
+      // Build filtered queries
+      const invQ = () => {
+        let q = supabase.from('inventory').select('id', { count: 'exact', head: true });
+        if (zoneFilter !== 'all') q = q.eq('zone_id', zoneFilter);
+        if (regionFilter !== 'all') q = q.eq('region_id', regionFilter);
+        return q;
+      };
+      const salesQ = () => {
+        let q = supabase.from('sales_records').select('id', { count: 'exact', head: true });
+        if (zoneFilter !== 'all') q = q.eq('zone_id', zoneFilter);
+        if (regionFilter !== 'all') q = q.eq('region_id', regionFilter);
+        return q;
+      };
+      const tlQ = () => {
+        let q = supabase.from('team_leaders').select('id', { count: 'exact', head: true });
+        if (regionFilter !== 'all') {
+          q = q.eq('region_id', regionFilter);
+        } else if (zoneFilter !== 'all') {
+          const zoneRegionIds = allRegions.filter(r => r.zone_id === zoneFilter).map(r => r.id);
+          if (zoneRegionIds.length > 0) q = q.in('region_id', zoneRegionIds);
+        }
+        return q;
+      };
+
       const [
         inventoryRes,
         availableRes,
@@ -228,41 +286,14 @@ export default function PublicDashboard() {
         captainRes,
         dsrRes,
       ] = await Promise.all([
-        supabase.from('inventory').select('id', { count: 'exact', head: true }),
-        supabase
-          .from('inventory')
-          .select('id', { count: 'exact', head: true })
-          .eq('status', 'available')
-          .is('assigned_to_id', null),
-
-        supabase
-          .from('sales_records')
-          .select('id', { count: 'exact', head: true })
-          .eq('sale_date', todayISO),
-
-        supabase
-          .from('sales_records')
-          .select('id', { count: 'exact', head: true })
-          .gte('sale_date', startOfMonthISO),
-
-        supabase
-          .from('sales_records')
-          .select('id', { count: 'exact', head: true })
-          .eq('payment_status', 'Unpaid'),
-
-        supabase
-          .from('sales_records')
-          .select('id', { count: 'exact', head: true })
-          .eq('package_status', 'No Package'),
-
-        supabase
-          .from('sales_records')
-          .select('id', { count: 'exact', head: true })
-          .is('team_leader_id', null)
-          .is('captain_id', null)
-          .is('dsr_id', null),
-
-        supabase.from('team_leaders').select('id', { count: 'exact', head: true }),
+        invQ(),
+        invQ().eq('status', 'available').is('assigned_to_id', null),
+        salesQ().eq('sale_date', todayISO),
+        salesQ().gte('sale_date', startOfMonthISO),
+        salesQ().eq('payment_status', 'Unpaid'),
+        salesQ().eq('package_status', 'No Package'),
+        salesQ().is('team_leader_id', null).is('captain_id', null).is('dsr_id', null),
+        tlQ(),
         supabase.from('captains').select('id', { count: 'exact', head: true }),
         supabase.from('dsrs').select('id', { count: 'exact', head: true }),
       ]);
@@ -294,10 +325,13 @@ export default function PublicDashboard() {
         d.setDate(d.getDate() - i);
         const iso = d.toISOString().split('T')[0];
 
-        const { count } = await supabase
+        let trendQuery = supabase
           .from('sales_records')
           .select('id', { count: 'exact', head: true })
           .eq('sale_date', iso);
+        if (zoneFilter !== 'all') trendQuery = trendQuery.eq('zone_id', zoneFilter);
+        if (regionFilter !== 'all') trendQuery = trendQuery.eq('region_id', regionFilter);
+        const { count } = await trendQuery;
 
         trends.push({
           date: d.toLocaleDateString('en-US', {
@@ -377,6 +411,27 @@ export default function PublicDashboard() {
             </div>
           </div>
         </div>
+
+        {/* Zone/Region Filter */}
+        <GlassCard className="p-3 md:p-4">
+          <div className="flex flex-wrap gap-2 items-center">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={zoneFilter} onValueChange={setZoneFilter}>
+              <SelectTrigger className="w-[130px] h-8 text-xs glass-input"><SelectValue placeholder="Zone" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Zones</SelectItem>
+                {zones.map(z => <SelectItem key={z.id} value={z.id}>{z.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={regionFilter} onValueChange={setRegionFilter}>
+              <SelectTrigger className="w-[130px] h-8 text-xs glass-input"><SelectValue placeholder="Region" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Regions</SelectItem>
+                {(zoneFilter === 'all' ? allRegions : allRegions.filter(r => r.zone_id === zoneFilter)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </GlassCard>
 
         {/* Quick Stats Bar */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">

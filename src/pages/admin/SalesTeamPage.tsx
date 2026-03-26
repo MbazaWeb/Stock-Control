@@ -13,6 +13,7 @@ import {
   Download,
   FileText,
   X,
+  Filter,
 } from 'lucide-react';
 import AdminLayout from '@/components/layout/AdminLayout';
 import GlassCard from '@/components/ui/GlassCard';
@@ -69,6 +70,12 @@ interface DSR {
 interface Region {
   id: string;
   name: string;
+  zone_id?: string | null;
+}
+
+interface Zone {
+  id: string;
+  name: string;
 }
 
 export default function SalesTeamPage() {
@@ -80,6 +87,9 @@ export default function SalesTeamPage() {
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [dsrs, setDsrs] = useState<DSR[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [zoneFilter, setZoneFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
 
   // Dialog states
   const [tlDialogOpen, setTlDialogOpen] = useState(false);
@@ -114,12 +124,15 @@ export default function SalesTeamPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [tlRes, captainRes, dsrRes, regionRes] = await Promise.all([
+      const [tlRes, captainRes, dsrRes, regionRes, zonesRes] = await Promise.all([
         supabase.from('team_leaders').select('*').order('name'),
         supabase.from('captains').select('*').order('name'),
         supabase.from('dsrs').select('*').order('name'),
-        supabase.from('regions').select('*').order('name'),
+        supabase.from('regions').select('id, name, zone_id').order('name'),
+        supabase.from('zones').select('id, name').order('name'),
       ]);
+
+      if (zonesRes.data) setZones(zonesRes.data);
 
       // For regional admins, filter team leaders by assigned regions
       if (tlRes.data) {
@@ -167,6 +180,22 @@ export default function SalesTeamPage() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => { setRegionFilter('all'); }, [zoneFilter]);
+
+  // Filtered lists based on zone/region selection
+  const filteredTeamLeaders = teamLeaders.filter(tl => {
+    if (regionFilter !== 'all') return tl.region_id === regionFilter;
+    if (zoneFilter !== 'all') {
+      const zoneRegionIds = regions.filter(r => r.zone_id === zoneFilter).map(r => r.id);
+      return tl.region_id && zoneRegionIds.includes(tl.region_id);
+    }
+    return true;
+  });
+  const filteredTLIds = filteredTeamLeaders.map(tl => tl.id);
+  const filteredCaptains = captains.filter(c => c.team_leader_id && filteredTLIds.includes(c.team_leader_id));
+  const filteredCaptainIds = filteredCaptains.map(c => c.id);
+  const filteredDsrs = dsrs.filter(d => d.captain_id && filteredCaptainIds.includes(d.captain_id));
 
   // Team Leader handlers
   const handleTLSubmit = async () => {
@@ -451,20 +480,41 @@ export default function SalesTeamPage() {
         <div className="grid grid-cols-3 gap-4">
           <GlassCard className="text-center">
             <Users className="h-8 w-8 mx-auto text-primary mb-2" />
-            <p className="text-2xl font-bold">{teamLeaders.length}</p>
+            <p className="text-2xl font-bold">{filteredTeamLeaders.length}</p>
             <p className="text-xs text-muted-foreground">Team Leaders</p>
           </GlassCard>
           <GlassCard className="text-center">
             <UserPlus className="h-8 w-8 mx-auto text-secondary mb-2" />
-            <p className="text-2xl font-bold">{captains.length}</p>
+            <p className="text-2xl font-bold">{filteredCaptains.length}</p>
             <p className="text-xs text-muted-foreground">Captains</p>
           </GlassCard>
           <GlassCard className="text-center">
             <Users className="h-8 w-8 mx-auto text-primary mb-2" />
-            <p className="text-2xl font-bold">{dsrs.length}</p>
+            <p className="text-2xl font-bold">{filteredDsrs.length}</p>
             <p className="text-xs text-muted-foreground">DSRs</p>
           </GlassCard>
         </div>
+
+        {/* Zone/Region Filter */}
+        <GlassCard className="p-4">
+          <div className="flex flex-wrap gap-2 items-center">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={zoneFilter} onValueChange={setZoneFilter}>
+              <SelectTrigger className="w-[140px] h-8 text-xs glass-input"><SelectValue placeholder="Zone" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Zones</SelectItem>
+                {zones.map(z => <SelectItem key={z.id} value={z.id}>{z.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={regionFilter} onValueChange={setRegionFilter}>
+              <SelectTrigger className="w-[140px] h-8 text-xs glass-input"><SelectValue placeholder="Region" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Regions</SelectItem>
+                {(zoneFilter === 'all' ? regions : regions.filter(r => r.zone_id === zoneFilter)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </GlassCard>
 
         {/* Tabs */}
         <Tabs defaultValue="hierarchy" className="w-full">
@@ -497,8 +547,8 @@ export default function SalesTeamPage() {
               </div>
 
               <div className="space-y-2">
-                {teamLeaders.map((tl) => {
-                  const tlCaptains = captains.filter((c) => c.team_leader_id === tl.id);
+                {filteredTeamLeaders.map((tl) => {
+                  const tlCaptains = filteredCaptains.filter((c) => c.team_leader_id === tl.id);
                   const isExpanded = expandedTLs.includes(tl.id);
 
                   return (
@@ -558,7 +608,7 @@ export default function SalesTeamPage() {
                             <p className="text-sm text-muted-foreground p-4">No captains assigned</p>
                           ) : (
                             tlCaptains.map((captain) => {
-                              const captainDsrs = dsrs.filter((d) => d.captain_id === captain.id);
+                              const captainDsrs = filteredDsrs.filter((d) => d.captain_id === captain.id);
                               const isCaptainExpanded = expandedCaptains.includes(captain.id);
 
                               return (
@@ -722,7 +772,7 @@ export default function SalesTeamPage() {
                 </Button>
               </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {teamLeaders.map((tl) => (
+                {filteredTeamLeaders.map((tl) => (
                   <div key={tl.id} className="glass-card p-4 rounded-xl border border-border/30">
                     <div className="flex justify-between items-start">
                       <div>
@@ -787,7 +837,7 @@ export default function SalesTeamPage() {
                 </Button>
               </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {captains.map((captain) => (
+                {filteredCaptains.map((captain) => (
                   <div key={captain.id} className="glass-card p-4 rounded-xl border border-border/30">
                     <div className="flex justify-between items-start">
                       <div>
@@ -832,7 +882,7 @@ export default function SalesTeamPage() {
                       </div>
                     </div>
                     <Badge className="mt-3 bg-secondary/20 text-secondary">
-                      {dsrs.filter((d) => d.captain_id === captain.id).length} DSRs
+                      {filteredDsrs.filter((d) => d.captain_id === captain.id).length} DSRs
                     </Badge>
                   </div>
                 ))}
@@ -867,7 +917,7 @@ export default function SalesTeamPage() {
                 </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {dsrs.map((dsr) => (
+                {filteredDsrs.map((dsr) => (
                   <div key={dsr.id} className="glass-card p-4 rounded-xl border border-border/30">
                     <div className="flex justify-between items-start">
                       <div>

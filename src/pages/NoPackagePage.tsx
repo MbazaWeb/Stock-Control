@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PackageX, Search, Calendar } from 'lucide-react';
+import { PackageX, Search, Calendar, Filter } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import PublicLayout from '@/components/layout/PublicLayout';
 import GlassCard from '@/components/ui/GlassCard';
@@ -14,6 +14,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface NoPackageSale {
   id: string;
@@ -26,59 +33,80 @@ interface NoPackageSale {
   team_leader: { name: string } | null;
   captain: { name: string } | null;
   dsr: { name: string } | null;
+  zone: { id: string; name: string } | null;
+  region: { id: string; name: string } | null;
 }
+
+interface Zone { id: string; name: string; }
+interface Region { id: string; name: string; zone_id: string; }
 
 export default function NoPackagePage() {
   const [sales, setSales] = useState<NoPackageSale[]>([]);
   const [filteredSales, setFilteredSales] = useState<NoPackageSale[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [zoneFilter, setZoneFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
 
   useEffect(() => {
     fetchNoPackageSales();
   }, []);
 
+  useEffect(() => { setRegionFilter('all'); }, [zoneFilter]);
+
   useEffect(() => {
+    let result = sales;
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      setFilteredSales(
-        sales.filter(
-          (s) =>
-            s.smartcard_number.toLowerCase().includes(query) ||
-            s.serial_number.toLowerCase().includes(query) ||
-            s.customer_name?.toLowerCase().includes(query) ||
-            s.team_leader?.name.toLowerCase().includes(query) ||
-            s.dsr?.name.toLowerCase().includes(query)
-        )
+      result = result.filter(
+        (s) =>
+          s.smartcard_number.toLowerCase().includes(query) ||
+          s.serial_number.toLowerCase().includes(query) ||
+          s.customer_name?.toLowerCase().includes(query) ||
+          s.team_leader?.name.toLowerCase().includes(query) ||
+          s.dsr?.name.toLowerCase().includes(query)
       );
-    } else {
-      setFilteredSales(sales);
     }
-  }, [searchQuery, sales]);
+    if (zoneFilter !== 'all') result = result.filter(s => s.zone?.id === zoneFilter);
+    if (regionFilter !== 'all') result = result.filter(s => s.region?.id === regionFilter);
+    setFilteredSales(result);
+  }, [searchQuery, sales, zoneFilter, regionFilter]);
 
   const fetchNoPackageSales = async () => {
     try {
-      const { data, error } = await supabase
-        .from('sales_records')
-        .select(`
-          id, smartcard_number, serial_number, stock_type, customer_name, sale_date, payment_status,
-          team_leaders:team_leader_id(name),
-          captains:captain_id(name),
-          dsrs:dsr_id(name)
-        `)
-        .eq('package_status', 'No Package')
-        .order('sale_date', { ascending: false });
+      const [salesRes, zonesRes, regionsRes] = await Promise.all([
+        supabase
+          .from('sales_records')
+          .select(`
+            id, smartcard_number, serial_number, stock_type, customer_name, sale_date, payment_status,
+            team_leaders:team_leader_id(name),
+            captains:captain_id(name),
+            dsrs:dsr_id(name),
+            zones:zone_id(id, name),
+            regions:region_id(id, name)
+          `)
+          .eq('package_status', 'No Package')
+          .order('sale_date', { ascending: false }),
+        supabase.from('zones').select('id, name').order('name'),
+        supabase.from('regions').select('id, name, zone_id').order('name'),
+      ]);
 
-      if (!error && data) {
+      if (!salesRes.error && salesRes.data) {
         setSales(
-          data.map((item: any) => ({
+          salesRes.data.map((item: any) => ({
             ...item,
             team_leader: item.team_leaders,
             captain: item.captains,
             dsr: item.dsrs,
+            zone: item.zones,
+            region: item.regions,
           }))
         );
       }
+      setZones(zonesRes.data || []);
+      setRegions(regionsRes.data || []);
     } catch (error) {
       console.error('Error fetching no package sales:', error);
     } finally {
@@ -107,8 +135,8 @@ export default function NoPackagePage() {
           </Badge>
         </div>
 
-        {/* Search */}
-        <GlassCard className="p-4">
+        {/* Search & Filters */}
+        <GlassCard className="p-4 space-y-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <Input
@@ -117,6 +145,23 @@ export default function NoPackagePage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10 input-glass"
             />
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={zoneFilter} onValueChange={setZoneFilter}>
+              <SelectTrigger className="w-[140px] h-8 text-xs glass-input"><SelectValue placeholder="Zone" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Zones</SelectItem>
+                {zones.map(z => <SelectItem key={z.id} value={z.id}>{z.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={regionFilter} onValueChange={setRegionFilter}>
+              <SelectTrigger className="w-[140px] h-8 text-xs glass-input"><SelectValue placeholder="Region" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Regions</SelectItem>
+                {(zoneFilter === 'all' ? regions : regions.filter(r => r.zone_id === zoneFilter)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
         </GlassCard>
 
