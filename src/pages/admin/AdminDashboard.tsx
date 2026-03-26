@@ -840,7 +840,7 @@ export default function AdminDashboard() {
                     }}
                     labelFormatter={(label) => {
                       if (timeRange === 'week') {
-                        const dayData = chartData.find(d => d.day === label);
+                        const dayData = (chartData as WeeklyDataPoint[]).find(d => d.day === label);
                         return dayData?.dateFull || label;
                       }
                       return label;
