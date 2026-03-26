@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import ExcelJS from 'exceljs';
+// ExcelJS loaded dynamically in handleExport
 import ScannerDialog from '@/components/ScannerDialog';
 
 interface SearchResult {
@@ -129,6 +129,7 @@ export default function SearchStock() {
           .limit(100);
 
         // Fetch assigned person names for inventory items (resolve full hierarchy)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const inventoryWithNames = await Promise.all((inventoryData || []).map(async (item: any) => {
           let tl_name: string | null = null;
           let captain_name: string | null = null;
@@ -176,6 +177,7 @@ export default function SearchStock() {
           .limit(100);
 
         // Process inventory data
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const inventoryResults = inventoryWithNames.map((item: any) => ({
           id: item.id,
           smartcard_number: item.smartcard_number,
@@ -198,6 +200,7 @@ export default function SearchStock() {
         }));
 
         // Process sales data
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const salesResults = (salesData || []).map((item: any) => ({
           id: item.id,
           smartcard_number: item.smartcard_number,
@@ -238,7 +241,7 @@ export default function SearchStock() {
 
         if (tlIds.length || captainIds.length || dsrIds.length) {
           // Search sales by person
-          let salesPromises = [];
+          const salesPromises = [];
           if (tlIds.length) {
             salesPromises.push(
               supabase.from('sales_records')
@@ -265,7 +268,7 @@ export default function SearchStock() {
           }
 
           // Search inventory by person - separate queries for each type
-          let inventoryPromises = [];
+          const inventoryPromises = [];
           if (tlIds.length) {
             inventoryPromises.push(
               supabase.from('inventory')
@@ -305,6 +308,7 @@ export default function SearchStock() {
           const allInventoryData = inventoryResults.flatMap(r => r.data || []);
           const uniqueInventory = Array.from(new Map(allInventoryData.map(i => [i.id, i])).values());
 
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const salesFormatted = uniqueSales.map((item: any) => ({
             id: item.id,
             smartcard_number: item.smartcard_number,
@@ -325,6 +329,7 @@ export default function SearchStock() {
             source: 'sale' as const
           }));
 
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const inventoryFormatted = uniqueInventory.map((item: any) => {
             let assigned_to_name = null;
             if (item.assigned_to_type === 'team_leader') assigned_to_name = tlNames[item.assigned_to_id];
@@ -447,6 +452,7 @@ export default function SearchStock() {
       'Last Updated': new Date(item.created_at).toLocaleString()
     }));
 
+    const { default: ExcelJS } = await import('exceljs');
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Search Results');
     
@@ -606,7 +612,7 @@ export default function SearchStock() {
         {/* Search Form */}
         <GlassCard>
           <form onSubmit={handleSearch} className="space-y-4">
-            <Tabs value={searchType} onValueChange={(v) => setSearchType(v as any)}>
+            <Tabs value={searchType} onValueChange={(v) => setSearchType(v as 'smartcard' | 'serial' | 'person')}>
               <TabsList className="grid w-full grid-cols-3 glass-card text-xs md:text-sm">
                 <TabsTrigger value="smartcard" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
                   <Package className="h-4 w-4 mr-2" />

@@ -10,7 +10,7 @@ import {
   Trash2,
   Filter,
 } from 'lucide-react';
-import ExcelJS from 'exceljs';
+// ExcelJS loaded dynamically in exportToExcel
 import AdminLayout from '@/components/layout/AdminLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
@@ -300,6 +300,7 @@ export default function SalesManagementPage() {
   };
 
   const exportToExcel = async () => {
+    const { default: ExcelJS } = await import('exceljs');
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Sales Records');
 

@@ -28,7 +28,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import ExcelJS from 'exceljs';
+// ExcelJS loaded dynamically in handleExportAllData
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -58,6 +58,7 @@ export default function SettingsPage() {
         supabase.from('regions').select('*'),
       ]);
 
+      const { default: ExcelJS } = await import('exceljs');
       const workbook = new ExcelJS.Workbook();
       
       const addSheet = (name: string, data: Record<string, unknown>[] | null) => {

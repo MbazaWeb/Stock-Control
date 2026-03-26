@@ -11,7 +11,7 @@ import {
   CreditCard,
   RefreshCw
 } from 'lucide-react';
-import ExcelJS from 'exceljs';
+// ExcelJS loaded dynamically in upload/download functions
 import AdminLayout from '@/components/layout/AdminLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
@@ -88,6 +88,7 @@ export default function GlobalImportPage() {
 
     try {
       const data = await file.arrayBuffer();
+      const { default: ExcelJS } = await import('exceljs');
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(data);
       
@@ -318,6 +319,7 @@ export default function GlobalImportPage() {
   };
 
   const downloadTemplate = async () => {
+    const { default: ExcelJS } = await import('exceljs');
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Sales Import');
     

@@ -3,9 +3,7 @@ import {
   BarChart3, Download, FileText, Filter, Package, CreditCard, Users,
   CheckCircle2, XCircle, Clock, RefreshCw, Calendar,
 } from 'lucide-react';
-import ExcelJS from 'exceljs';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// ExcelJS, jsPDF, autoTable loaded dynamically in export functions
 import AdminLayout from '@/components/layout/AdminLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
@@ -224,6 +222,7 @@ export default function SalesReportPage() {
 
   // Export Excel
   const exportExcel = async () => {
+    const { default: ExcelJS } = await import('exceljs');
     const wb = new ExcelJS.Workbook();
 
     // Summary sheet
@@ -315,7 +314,9 @@ export default function SalesReportPage() {
   };
 
   // Export PDF
-  const exportPDF = () => {
+  const exportPDF = async () => {
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
     const doc = new jsPDF('landscape');
     const title = `Stocky Report - ${getFilterLabel()}`;
     doc.setFontSize(16);

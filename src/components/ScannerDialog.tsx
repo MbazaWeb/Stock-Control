@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Camera, X, RotateCcw, Loader2, ScanLine } from 'lucide-react';
-import { createWorker, Worker } from 'tesseract.js';
+import type { Worker } from 'tesseract.js';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -105,6 +105,7 @@ export default function ScannerDialog({
 
     try {
       if (!workerRef.current) {
+        const { createWorker } = await import('tesseract.js');
         workerRef.current = await createWorker('eng');
       }
 

@@ -53,7 +53,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
-import ExcelJS from 'exceljs';
+// ExcelJS loaded dynamically in handleExport
 
 interface SearchResult {
   id: string;
@@ -738,6 +738,7 @@ export default function AdminSearchPage() {
       'Source': item.source,
     }));
 
+    const { default: ExcelJS } = await import('exceljs');
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Search Results');
 

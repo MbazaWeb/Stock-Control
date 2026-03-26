@@ -20,7 +20,7 @@ import {
   Shield,
   ScanLine,
 } from 'lucide-react';
-import ExcelJS from 'exceljs';
+// ExcelJS loaded dynamically in export/upload/download functions
 import AdminLayout from '@/components/layout/AdminLayout';
 import ScannerDialog from '@/components/ScannerDialog';
 import GlassCard from '@/components/ui/GlassCard';
@@ -157,6 +157,7 @@ export default function InventoryPage() {
     region_id: string | null;
     valid: boolean;
     errors: string[];
+    __row: number;
   }[]>([]);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
 
@@ -319,6 +320,7 @@ export default function InventoryPage() {
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const resetForm = () => {
@@ -418,13 +420,14 @@ export default function InventoryPage() {
 
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+      const data = evt.target?.result as ArrayBuffer;
+      const { default: ExcelJS } = await import('exceljs');
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(data);
       const sheet = workbook.worksheets[0];
-      const rows: any[][] = [];
-      sheet.eachRow((row, rowNumber) => {
-        rows.push(row.values as any[]);
+      const rows: (string | number | boolean | undefined)[][] = [];
+      sheet.eachRow((_row, _rowNumber) => {
+        rows.push(_row.values as (string | number | boolean | undefined)[]);
       });
 
       const parsed = rows.slice(1).map((row, index) => {
@@ -448,7 +451,7 @@ export default function InventoryPage() {
           valid: errors.length === 0,
           errors,
           __row: index + 2,
-        } as any;
+        };
       });
 
       if (parsed.length === 0) {
@@ -456,7 +459,7 @@ export default function InventoryPage() {
         return;
       }
 
-      setExcelPreview(parsed as any);
+      setExcelPreview(parsed);
       setExcelDialogOpen(true);
     };
     reader.readAsArrayBuffer(file);
@@ -464,6 +467,7 @@ export default function InventoryPage() {
   };
 
   const downloadTemplate = async () => {
+    const { default: ExcelJS } = await import('exceljs');
     const wb = new ExcelJS.Workbook();
     wb.creator = 'StockFlow';
     const ws = wb.addWorksheet('Stock Template');
@@ -581,6 +585,7 @@ export default function InventoryPage() {
       Notes: item.notes || '',
     }));
 
+    const { default: ExcelJS } = await import('exceljs');
     const workbook = new ExcelJS.Workbook();
     const ws = workbook.addWorksheet('Inventory');
     if (exportData.length > 0) {

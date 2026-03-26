@@ -10,13 +10,25 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [react()].filter(Boolean),
   build: {
+    target: 'es2020',
+    cssCodeSplit: true,
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
+          query: ['@tanstack/react-query'],
           charts: ['recharts'],
           supabase: ['@supabase/supabase-js'],
-          excel: ['exceljs'],
+          ui: [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-select',
+            '@radix-ui/react-popover',
+            '@radix-ui/react-dropdown-menu',
+            '@radix-ui/react-tooltip',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-toast',
+            '@radix-ui/react-scroll-area',
+          ],
         },
       },
     },

@@ -45,7 +45,7 @@ import {
   Area,
   Legend
 } from 'recharts';
-import ExcelJS from 'exceljs';
+// ExcelJS loaded dynamically in handleExport
 
 interface DashboardStats {
   totalStock: number;
@@ -545,6 +545,7 @@ export default function AdminDashboard() {
       alerts
     };
 
+    const { default: ExcelJS } = await import('exceljs');
     const workbook = new ExcelJS.Workbook();
     
     const ws = workbook.addWorksheet('Dashboard Summary');

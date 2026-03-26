@@ -33,7 +33,16 @@ const AdminSearchPage = lazy(() => import("./pages/admin/AdminSearchPage"));
 const SalesApprovalPage = lazy(() => import("./pages/admin/SalesApprovalPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 2 * 60 * 1000,   // 2 min — avoid redundant refetches
+      gcTime: 5 * 60 * 1000,      // 5 min — keep cache a bit longer
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center">
