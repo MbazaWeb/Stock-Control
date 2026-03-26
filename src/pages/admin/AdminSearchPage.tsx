@@ -53,6 +53,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { Skeleton } from '@/components/ui/skeleton';
 // ExcelJS loaded dynamically in handleExport
 
 interface SearchResult {
@@ -976,8 +977,18 @@ export default function AdminSearchPage() {
           </GlassCard>
         )}
 
+        {/* Skeleton loading during search */}
+        {isLoading && (
+          <div className="space-y-4 animate-fade-in">
+            <Skeleton className="h-8 w-48" />
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-40 rounded-2xl" />
+            ))}
+          </div>
+        )}
+
         {/* Results */}
-        {hasSearched && (
+        {hasSearched && !isLoading && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold">

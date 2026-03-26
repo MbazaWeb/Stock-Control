@@ -476,7 +476,7 @@ setDsrForm({ name: '', phone: '', captain_id: '', dsr_number: '', has_fss_accoun
 
   return (
     <AdminLayout>
-      <div className="space-y-3 md:space-y-6">
+      <div className="space-y-3 md:space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 md:gap-4">
           <div>

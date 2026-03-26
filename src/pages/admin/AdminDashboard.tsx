@@ -633,7 +633,7 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout>
-      <div className="space-y-4 md:space-y-6">
+      <div className="space-y-4 md:space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 md:gap-4">
           <div>
@@ -691,7 +691,7 @@ export default function AdminDashboard() {
         </GlassCard>
 
         {/* Quick Stats Bar */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 animate-stagger">
           {quickStats.map((stat, index) => (
             <GlassCard key={index} className="!p-3 md:!p-4 hover:shadow-lg transition-shadow">
               <div className="flex items-center justify-between">
@@ -714,7 +714,7 @@ export default function AdminDashboard() {
           ))}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 md:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 md:gap-4 animate-stagger">
           <StatsCard
             title="Total Inventory"
             value={stats.totalStock.toLocaleString()}
@@ -754,7 +754,7 @@ export default function AdminDashboard() {
           />
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 md:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 md:gap-4 animate-stagger">
           <StatsCard
             title="Team Leaders"
             value={stats.teamLeaders.toString()}

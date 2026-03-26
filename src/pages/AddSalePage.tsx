@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface Zone { id: string; name: string; }
 interface Region { id: string; name: string; zone_id: string | null; }
@@ -256,8 +257,17 @@ export default function AddSalePage() {
   if (loading) {
     return (
       <PublicLayout>
-        <div className="flex items-center justify-center min-h-[50vh]">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="max-w-lg mx-auto space-y-6 animate-fade-in">
+          <Skeleton className="h-10 w-48" />
+          <div className="glass-card p-6 space-y-4">
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full mt-4" />
+          </div>
         </div>
       </PublicLayout>
     );

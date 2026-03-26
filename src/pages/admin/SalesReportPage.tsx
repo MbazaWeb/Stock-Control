@@ -4,6 +4,7 @@ import {
   CheckCircle2, XCircle, Clock, RefreshCw, Calendar,
 } from 'lucide-react';
 // ExcelJS, jsPDF, autoTable loaded dynamically in export functions
+import { supabase } from '@/integrations/supabase/client';
 import AdminLayout from '@/components/layout/AdminLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
@@ -17,8 +18,8 @@ import {
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
 
 interface InventoryItem {
   id: string;
@@ -409,7 +410,7 @@ export default function SalesReportPage() {
 
   return (
     <AdminLayout>
-      <div className="space-y-3 md:space-y-6">
+      <div className="space-y-3 md:space-y-6 animate-fade-in">
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 md:gap-4">
           <div>
@@ -564,7 +565,13 @@ export default function SalesReportPage() {
                   </TableHeader>
                   <TableBody>
                     {loading ? (
-                      <TableRow><TableCell colSpan={9} className="text-center py-8">Loading...</TableCell></TableRow>
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 9 }).map((_, j) => (
+                            <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                          ))}
+                        </TableRow>
+                      ))
                     ) : filteredInventory.length === 0 ? (
                       <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No inventory matches filters</TableCell></TableRow>
                     ) : (
@@ -647,7 +654,13 @@ export default function SalesReportPage() {
                   </TableHeader>
                   <TableBody>
                     {loading ? (
-                      <TableRow><TableCell colSpan={9} className="text-center py-8">Loading...</TableCell></TableRow>
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 9 }).map((_, j) => (
+                            <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                          ))}
+                        </TableRow>
+                      ))
                     ) : filteredSales.length === 0 ? (
                       <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No sales match filters</TableCell></TableRow>
                     ) : (

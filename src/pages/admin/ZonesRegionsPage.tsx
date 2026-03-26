@@ -210,7 +210,7 @@ export default function ZonesRegionsPage() {
 
   return (
     <AdminLayout>
-      <div className="space-y-3 md:space-y-6">
+      <div className="space-y-3 md:space-y-6 animate-fade-in">
         {/* Header */}
         <div>
           <h1 className="text-xl md:text-3xl font-display font-bold">

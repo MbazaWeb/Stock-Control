@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { lazy, Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import PWAInstallBanner from "@/components/PWAInstallBanner";
 
 // Eager-load the public landing page for fast first paint
 import PublicDashboard from "./pages/PublicDashboard";
@@ -60,6 +61,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
+        <PWAInstallBanner />
         <BrowserRouter>
           <Suspense fallback={<PageLoader />}>
             <Routes>

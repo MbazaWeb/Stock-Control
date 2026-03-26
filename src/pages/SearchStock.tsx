@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/select';
 // ExcelJS loaded dynamically in handleExport
 import ScannerDialog from '@/components/ScannerDialog';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface SearchResult {
   id: string;
@@ -680,6 +681,16 @@ export default function SearchStock() {
           title={searchType === 'smartcard' ? 'Scan Smartcard Number' : 'Scan Serial Number'}
           hint={searchType === 'smartcard' ? 'Point camera at the smartcard number' : 'Point camera at the serial number'}
         />
+
+        {/* Skeleton loading during search */}
+        {isLoading && (
+          <div className="space-y-4 animate-fade-in">
+            <Skeleton className="h-8 w-48" />
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-40 rounded-2xl" />
+            ))}
+          </div>
+        )}
 
         {/* Filters */}
         {hasSearched && results.length > 0 && (
