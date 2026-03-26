@@ -165,70 +165,41 @@ export default function AdminDashboard() {
       }
       const { data: teamLeaders } = await tlQuery;
 
-      if (!teamLeaders) {
+      if (!teamLeaders || teamLeaders.length === 0) {
         return { totalAssigned: 0, totalSold: 0, totalInHand: 0, topTLs: [] };
       }
+
+      const tlIds = teamLeaders.map(tl => tl.id);
+
+      // Batch: 2 queries instead of 2 per TL
+      const [{ data: assignedItems }, { data: soldItems }] = await Promise.all([
+        supabase.from('inventory').select('assigned_to_id').eq('assigned_to_type', 'team_leader').in('assigned_to_id', tlIds).eq('status', 'assigned'),
+        supabase.from('inventory').select('assigned_to_id').eq('assigned_to_type', 'team_leader').in('assigned_to_id', tlIds).eq('status', 'sold'),
+      ]);
+
+      const assignedMap: Record<string, number> = {};
+      const soldMap: Record<string, number> = {};
+      (assignedItems || []).forEach(i => { assignedMap[i.assigned_to_id] = (assignedMap[i.assigned_to_id] || 0) + 1; });
+      (soldItems || []).forEach(i => { soldMap[i.assigned_to_id] = (soldMap[i.assigned_to_id] || 0) + 1; });
 
       let totalAssigned = 0;
       let totalSold = 0;
       let totalInHand = 0;
-      const tlPerformance: Array<{
-        id: string;
-        name: string; 
-        sold: number; 
-        assigned: number; 
-        inHand: number;
-        conversion: number;
-        region?: string;
-      }> = [];
-
-      const inventoryPromises = teamLeaders.map(async (tl) => {
-        const [{ count: assignedCount }, { count: soldCount }] = await Promise.all([
-          supabase
-            .from('inventory')
-            .select('id', { count: 'exact', head: true })
-            .eq('assigned_to_type', 'team_leader')
-            .eq('assigned_to_id', tl.id)
-            .eq('status', 'assigned'),
-          supabase
-            .from('inventory')
-            .select('id', { count: 'exact', head: true })
-            .eq('assigned_to_type', 'team_leader')
-            .eq('assigned_to_id', tl.id)
-            .eq('status', 'sold')
-        ]);
-
-        const assigned = assignedCount || 0;
-        const sold = soldCount || 0;
-        const inHand = Math.max(0, assigned - sold);
+      const tlPerformance = teamLeaders.map(tl => {
+        const assigned = (assignedMap[tl.id] || 0) + (soldMap[tl.id] || 0);
+        const sold = soldMap[tl.id] || 0;
+        const inHand = assignedMap[tl.id] || 0;
         const conversion = assigned > 0 ? (sold / assigned) * 100 : 0;
-
         totalAssigned += assigned;
         totalSold += sold;
         totalInHand += inHand;
-
-        tlPerformance.push({
-          id: tl.id,
-          name: tl.name,
-          sold,
-          assigned,
-          inHand,
-          conversion: parseFloat(conversion.toFixed(1)),
-          region: (tl.regions as any)?.name || 'Unassigned'
-        });
+        return { name: tl.name, sold, assigned, inHand, conversion: parseFloat(conversion.toFixed(1)), region: (tl.regions as any)?.name || 'Unassigned' };
       });
-
-      await Promise.all(inventoryPromises);
 
       const sortedTLs = tlPerformance
         .sort((a, b) => b.conversion - a.conversion)
         .slice(0, 5)
-        .map(tl => ({ 
-          name: tl.name, 
-          sold: tl.sold, 
-          assigned: tl.assigned,
-          conversion: tl.conversion 
-        }));
+        .map(tl => ({ name: tl.name, sold: tl.sold, assigned: tl.assigned, conversion: tl.conversion }));
 
       return { totalAssigned, totalSold, totalInHand, topTLs: sortedTLs };
     } catch (error) {
@@ -437,48 +408,58 @@ export default function AdminDashboard() {
 
       setTopTLs(tlStockData.topTLs);
 
-      // Weekly data (units only)
+      // Weekly data — single query instead of 7
+      const weekStart = new Date();
+      weekStart.setDate(weekStart.getDate() - 6);
+      const weekStartISO = weekStart.toISOString().split('T')[0];
+
+      let weekQuery = supabase.from('sales_records').select('sale_date').gte('sale_date', weekStartISO).lte('sale_date', today);
+      if (zoneFilter !== 'all') weekQuery = weekQuery.eq('zone_id', zoneFilter);
+      if (regionFilter !== 'all') weekQuery = weekQuery.eq('region_id', regionFilter);
+      const { data: weekSales } = await weekQuery;
+
+      const weekCounts: Record<string, number> = {};
+      (weekSales || []).forEach(r => { weekCounts[r.sale_date] = (weekCounts[r.sale_date] || 0) + 1; });
+
       const weekly: any[] = [];
       for (let i = 6; i >= 0; i--) {
         const date = new Date();
         date.setDate(date.getDate() - i);
         const dateStr = date.toISOString().split('T')[0];
-        
-        let dayQuery = supabase.from('sales_records').select('id').eq('sale_date', dateStr);
-        if (zoneFilter !== 'all') dayQuery = dayQuery.eq('zone_id', zoneFilter);
-        if (regionFilter !== 'all') dayQuery = dayQuery.eq('region_id', regionFilter);
-        const { data: dailyData } = await dayQuery;
-        
         weekly.push({
           day: date.toLocaleDateString('en-US', { weekday: 'short' }),
           date: dateStr,
           dateFull: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          units: dailyData?.length || 0,
+          units: weekCounts[dateStr] || 0,
         });
       }
       setWeeklyData(weekly);
 
-      // Monthly data (units only)
-      const monthly: any[] = [];
+      // Monthly data — single query instead of 12
       const currentDate = new Date();
+      const yearAgo = new Date(currentDate.getFullYear(), currentDate.getMonth() - 11, 1);
+      const yearAgoISO = yearAgo.toISOString().split('T')[0];
+      const endOfCurrentMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).toISOString().split('T')[0];
+
+      let monthAllQuery = supabase.from('sales_records').select('sale_date').gte('sale_date', yearAgoISO).lte('sale_date', endOfCurrentMonth);
+      if (zoneFilter !== 'all') monthAllQuery = monthAllQuery.eq('zone_id', zoneFilter);
+      if (regionFilter !== 'all') monthAllQuery = monthAllQuery.eq('region_id', regionFilter);
+      const { data: monthSales } = await monthAllQuery;
+
+      const monthCounts: Record<string, number> = {};
+      (monthSales || []).forEach(r => {
+        const key = r.sale_date.substring(0, 7); // YYYY-MM
+        monthCounts[key] = (monthCounts[key] || 0) + 1;
+      });
+
+      const monthly: any[] = [];
       for (let i = 11; i >= 0; i--) {
         const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
-        const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1)
-          .toISOString().split('T')[0];
-        const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0)
-          .toISOString().split('T')[0];
-        
-        let monthQuery = supabase.from('sales_records').select('id')
-          .gte('sale_date', startOfMonth)
-          .lte('sale_date', endOfMonth);
-        if (zoneFilter !== 'all') monthQuery = monthQuery.eq('zone_id', zoneFilter);
-        if (regionFilter !== 'all') monthQuery = monthQuery.eq('region_id', regionFilter);
-        const { data: monthlySales } = await monthQuery;
-        
+        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         monthly.push({
           month: date.toLocaleDateString('en-US', { month: 'short' }),
           year: date.getFullYear(),
-          units: monthlySales?.length || 0,
+          units: monthCounts[key] || 0,
         });
       }
       setMonthlyData(monthly);

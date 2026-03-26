@@ -111,6 +111,7 @@ export default function RecordSalePage() {
     team_leader_id: '',
     inventory_id: '',
     package_status: 'No Package',
+    payment_status: 'Unpaid',
     sale_date: new Date().toISOString().split('T')[0],
   });
 
@@ -190,6 +191,7 @@ export default function RecordSalePage() {
       team_leader_id: '',
       inventory_id: '',
       package_status: 'No Package',
+      payment_status: 'Unpaid',
       sale_date: new Date().toISOString().split('T')[0],
     });
     setTlStock([]);
@@ -235,7 +237,7 @@ export default function RecordSalePage() {
         serial_number: selectedStock.serial_number,
         stock_type: selectedStock.stock_type,
         sale_date: formData.sale_date,
-        payment_status: 'Unpaid',
+        payment_status: formData.payment_status,
         package_status: formData.package_status,
         team_leader_id: formData.team_leader_id,
         region_id: formData.region_id,
@@ -299,6 +301,7 @@ export default function RecordSalePage() {
       team_leader_id: sale.team_leader_id || '',
       inventory_id: sale.inventory_id || '',
       package_status: sale.package_status,
+      payment_status: sale.payment_status,
       sale_date: sale.sale_date,
     });
     setDialogOpen(true);
@@ -419,9 +422,35 @@ export default function RecordSalePage() {
               </div>
             </div>
             {selectedItems.length > 0 && (
-              <Button variant="destructive" size="sm" onClick={handleBulkDelete}>
-                <Trash2 className="w-4 h-4 mr-2" /> Delete ({selectedItems.length})
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={async () => {
+                  const { error } = await supabase.from('sales_records').update({ payment_status: 'Paid' }).in('id', selectedItems);
+                  if (!error) { toast({ title: 'Success', description: `${selectedItems.length} marked Paid` }); setSelectedItems([]); fetchData(); }
+                }}>
+                  <Check className="w-3 h-3 mr-1" /> Paid
+                </Button>
+                <Button size="sm" variant="outline" onClick={async () => {
+                  const { error } = await supabase.from('sales_records').update({ payment_status: 'Unpaid' }).in('id', selectedItems);
+                  if (!error) { toast({ title: 'Success', description: `${selectedItems.length} marked Unpaid` }); setSelectedItems([]); fetchData(); }
+                }}>
+                  <XCircle className="w-3 h-3 mr-1" /> Unpaid
+                </Button>
+                <Button size="sm" variant="outline" onClick={async () => {
+                  const { error } = await supabase.from('sales_records').update({ package_status: 'Packaged' }).in('id', selectedItems);
+                  if (!error) { toast({ title: 'Success', description: `${selectedItems.length} marked Packaged` }); setSelectedItems([]); fetchData(); }
+                }}>
+                  <PackageCheck className="w-3 h-3 mr-1" /> Packaged
+                </Button>
+                <Button size="sm" variant="outline" onClick={async () => {
+                  const { error } = await supabase.from('sales_records').update({ package_status: 'No Package' }).in('id', selectedItems);
+                  if (!error) { toast({ title: 'Success', description: `${selectedItems.length} marked No Package` }); setSelectedItems([]); fetchData(); }
+                }}>
+                  <PackageOpen className="w-3 h-3 mr-1" /> No Pkg
+                </Button>
+                <Button size="sm" variant="destructive" onClick={handleBulkDelete}>
+                  <Trash2 className="w-3 h-3 mr-1" /> Delete ({selectedItems.length})
+                </Button>
+              </div>
             )}
           </div>
           <div className="flex flex-wrap gap-2 items-center">
@@ -670,7 +699,24 @@ export default function RecordSalePage() {
                 </Select>
               </div>
 
-              {/* 5. Sale Date */}
+              {/* 5. Payment Status */}
+              <div>
+                <Label>Payment Status</Label>
+                <Select
+                  value={formData.payment_status}
+                  onValueChange={(v) => setFormData({ ...formData, payment_status: v })}
+                >
+                  <SelectTrigger className="glass-input">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Paid">Paid</SelectItem>
+                    <SelectItem value="Unpaid">Unpaid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* 6. Sale Date */}
               <div>
                 <Label>Sale Date</Label>
                 <Input

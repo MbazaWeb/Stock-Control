@@ -141,54 +141,30 @@ export default function PublicDashboard() {
       }
       const { data: teamLeaders } = await tlQuery;
 
-      if (!teamLeaders) return [];
+      if (!teamLeaders || teamLeaders.length === 0) return [];
 
-      const tlStockStatus: TLStockStatus[] = [];
+      const tlIds = teamLeaders.map(tl => tl.id);
 
-      const promises = teamLeaders.map(async (tl) => {
-        // Count assigned stock to this TL
-        const { count: assignedCount } = await supabase
-          .from('inventory')
-          .select('id', { count: 'exact', head: true })
-          .eq('assigned_to_type', 'team_leader')
-          .eq('assigned_to_id', tl.id);
+      // Batch: fetch all inventory for these TLs in 2 queries instead of 3 per TL
+      const [{ data: assignedItems }, { data: soldItems }] = await Promise.all([
+        supabase.from('inventory').select('assigned_to_id').eq('assigned_to_type', 'team_leader').in('assigned_to_id', tlIds).eq('status', 'assigned'),
+        supabase.from('inventory').select('assigned_to_id').eq('assigned_to_type', 'team_leader').in('assigned_to_id', tlIds).eq('status', 'sold'),
+      ]);
 
-        // Count sold stock by this TL
-        const { count: soldCount } = await supabase
-          .from('inventory')
-          .select('id', { count: 'exact', head: true })
-          .eq('assigned_to_type', 'team_leader')
-          .eq('assigned_to_id', tl.id)
-          .eq('status', 'sold');
+      const assignedMap: Record<string, number> = {};
+      const soldMap: Record<string, number> = {};
+      (assignedItems || []).forEach(i => { assignedMap[i.assigned_to_id] = (assignedMap[i.assigned_to_id] || 0) + 1; });
+      (soldItems || []).forEach(i => { soldMap[i.assigned_to_id] = (soldMap[i.assigned_to_id] || 0) + 1; });
 
-        // Count available stock (assigned but not sold)
-        const { count: inHandCount } = await supabase
-          .from('inventory')
-          .select('id', { count: 'exact', head: true })
-          .eq('assigned_to_type', 'team_leader')
-          .eq('assigned_to_id', tl.id)
-          .eq('status', 'assigned');
-
-        const total_assigned = assignedCount || 0;
-        const total_sold = soldCount || 0;
-        const in_hand = inHandCount || 0;
+      const tlStockStatus: TLStockStatus[] = teamLeaders.map(tl => {
+        const in_hand = assignedMap[tl.id] || 0;
+        const total_sold = soldMap[tl.id] || 0;
+        const total_assigned = in_hand + total_sold;
         const conversion_rate = total_assigned > 0 ? (total_sold / total_assigned) * 100 : 0;
-
-        tlStockStatus.push({
-          name: tl.name,
-          total_assigned,
-          total_sold,
-          available: total_assigned - total_sold,
-          in_hand,
-          conversion_rate,
-        });
+        return { name: tl.name, total_assigned, total_sold, available: total_assigned - total_sold, in_hand, conversion_rate };
       });
 
-      await Promise.all(promises);
-      
-      // Sort by conversion rate (highest first)
       tlStockStatus.sort((a, b) => b.conversion_rate - a.conversion_rate);
-      
       return tlStockStatus;
     } catch (error) {
       console.error('Error fetching TL stock data:', error);
@@ -318,27 +294,27 @@ export default function PublicDashboard() {
       // Fetch recent sales
       await fetchRecentSales();
 
-      // Generate 7-day trend data
+      // Generate 7-day trend data — single query instead of 7
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+      const startISO = sevenDaysAgo.toISOString().split('T')[0];
+
+      let trendQuery = supabase.from('sales_records').select('sale_date').gte('sale_date', startISO).lte('sale_date', todayISO);
+      if (zoneFilter !== 'all') trendQuery = trendQuery.eq('zone_id', zoneFilter);
+      if (regionFilter !== 'all') trendQuery = trendQuery.eq('region_id', regionFilter);
+      const { data: trendData } = await trendQuery;
+
+      const dayCounts: Record<string, number> = {};
+      (trendData || []).forEach(r => { dayCounts[r.sale_date] = (dayCounts[r.sale_date] || 0) + 1; });
+
       const trends: DailyTrend[] = [];
       for (let i = 6; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
         const iso = d.toISOString().split('T')[0];
-
-        let trendQuery = supabase
-          .from('sales_records')
-          .select('id', { count: 'exact', head: true })
-          .eq('sale_date', iso);
-        if (zoneFilter !== 'all') trendQuery = trendQuery.eq('zone_id', zoneFilter);
-        if (regionFilter !== 'all') trendQuery = trendQuery.eq('region_id', regionFilter);
-        const { count } = await trendQuery;
-
         trends.push({
-          date: d.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-          }),
-          units: count ?? 0,
+          date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          units: dayCounts[iso] || 0,
           dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
         });
       }
