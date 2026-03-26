@@ -113,23 +113,41 @@ export type Database = {
         Row: {
           captain_id: string | null
           created_at: string
+          district: string | null
+          dsr_number: string | null
+          fss_username: string | null
+          has_fss_account: boolean
           id: string
           name: string
           phone: string | null
+          street_village: string | null
+          ward: string | null
         }
         Insert: {
           captain_id?: string | null
           created_at?: string
+          district?: string | null
+          dsr_number?: string | null
+          fss_username?: string | null
+          has_fss_account?: boolean
           id?: string
           name: string
           phone?: string | null
+          street_village?: string | null
+          ward?: string | null
         }
         Update: {
           captain_id?: string | null
           created_at?: string
+          district?: string | null
+          dsr_number?: string | null
+          fss_username?: string | null
+          has_fss_account?: boolean
           id?: string
           name?: string
           phone?: string | null
+          street_village?: string | null
+          ward?: string | null
         }
         Relationships: [
           {

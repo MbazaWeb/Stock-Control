@@ -39,6 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -64,6 +65,12 @@ interface DSR {
   name: string;
   phone: string | null;
   captain_id: string | null;
+  dsr_number: string | null;
+  has_fss_account: boolean;
+  fss_username: string | null;
+  district: string | null;
+  ward: string | null;
+  street_village: string | null;
   created_at: string;
 }
 
@@ -107,7 +114,7 @@ export default function SalesTeamPage() {
   // Form states
   const [tlForm, setTlForm] = useState({ name: '', phone: '', region_id: '' });
   const [captainForm, setCaptainForm] = useState({ name: '', phone: '', team_leader_id: '' });
-  const [dsrForm, setDsrForm] = useState({ name: '', phone: '', captain_id: '' });
+  const [dsrForm, setDsrForm] = useState({ name: '', phone: '', captain_id: '', dsr_number: '', has_fss_account: false, fss_username: '', district: '', ward: '', street_village: '' });
 
   // Bulk DSR state
   const [bulkDsrData, setBulkDsrData] = useState({
@@ -264,6 +271,12 @@ export default function SalesTeamPage() {
       name: dsrForm.name,
       phone: dsrForm.phone || null,
       captain_id: dsrForm.captain_id || null,
+      dsr_number: dsrForm.dsr_number || null,
+      has_fss_account: dsrForm.has_fss_account,
+      fss_username: dsrForm.has_fss_account ? (dsrForm.fss_username || null) : null,
+      district: dsrForm.district || null,
+      ward: dsrForm.ward || null,
+      street_village: dsrForm.street_village || null,
     };
 
     const { error } = editingDSR
@@ -274,7 +287,7 @@ export default function SalesTeamPage() {
       toast({ title: 'Success', description: editingDSR ? 'DSR updated!' : 'DSR added!' });
       setDsrDialogOpen(false);
       setEditingDSR(null);
-      setDsrForm({ name: '', phone: '', captain_id: '' });
+setDsrForm({ name: '', phone: '', captain_id: '', dsr_number: '', has_fss_account: false, fss_username: '', district: '', ward: '', street_village: '' });
       fetchData();
     } else {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -687,6 +700,12 @@ export default function SalesTeamPage() {
                                                     name: dsr.name,
                                                     phone: dsr.phone || '',
                                                     captain_id: dsr.captain_id || '',
+                                                    dsr_number: dsr.dsr_number || '',
+                                                    has_fss_account: dsr.has_fss_account || false,
+                                                    fss_username: dsr.fss_username || '',
+                                                    district: dsr.district || '',
+                                                    ward: dsr.ward || '',
+                                                    street_village: dsr.street_village || '',
                                                   });
                                                   setDsrDialogOpen(true);
                                                 }}
@@ -908,7 +927,7 @@ export default function SalesTeamPage() {
                   <Button
                     onClick={() => {
                       setEditingDSR(null);
-                      setDsrForm({ name: '', phone: '', captain_id: '' });
+                      setDsrForm({ name: '', phone: '', captain_id: '', dsr_number: '', has_fss_account: false, fss_username: '', district: '', ward: '', street_village: '' });
                       setDsrDialogOpen(true);
                     }}
                   >
@@ -921,7 +940,12 @@ export default function SalesTeamPage() {
                   <div key={dsr.id} className="glass-card p-4 rounded-xl border border-border/30">
                     <div className="flex justify-between items-start">
                       <div>
-                        <h4 className="font-semibold">{dsr.name}</h4>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-semibold">{dsr.name}</h4>
+                          {dsr.dsr_number && (
+                            <Badge variant="outline" className="text-xs">{dsr.dsr_number}</Badge>
+                          )}
+                        </div>
                         {dsr.phone && (
                           <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                             <Phone className="h-3 w-3" /> {dsr.phone}
@@ -931,6 +955,14 @@ export default function SalesTeamPage() {
                           <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                             <UserPlus className="h-3 w-3" /> {captains.find((c) => c.id === dsr.captain_id)?.name}
                           </p>
+                        )}
+                        {(dsr.district || dsr.ward || dsr.street_village) && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                            <MapPin className="h-3 w-3" /> {[dsr.district, dsr.ward, dsr.street_village].filter(Boolean).join(', ')}
+                          </p>
+                        )}
+                        {dsr.has_fss_account && (
+                          <Badge className="text-xs mt-1 bg-green-500/20 text-green-500 border-green-500/30">FSS: {dsr.fss_username || '—'}</Badge>
                         )}
                       </div>
                       <div className="flex gap-1">
@@ -943,6 +975,12 @@ export default function SalesTeamPage() {
                               name: dsr.name,
                               phone: dsr.phone || '',
                               captain_id: dsr.captain_id || '',
+                              dsr_number: dsr.dsr_number || '',
+                              has_fss_account: dsr.has_fss_account || false,
+                              fss_username: dsr.fss_username || '',
+                              district: dsr.district || '',
+                              ward: dsr.ward || '',
+                              street_village: dsr.street_village || '',
                             });
                             setDsrDialogOpen(true);
                           }}
@@ -1073,41 +1111,111 @@ export default function SalesTeamPage() {
 
         {/* DSR Dialog */}
         <Dialog open={dsrDialogOpen} onOpenChange={setDsrDialogOpen}>
-          <DialogContent className="glass-card border-border/50">
+          <DialogContent className="glass-card border-border/50 max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingDSR ? 'Edit DSR' : 'Add DSR'}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <div>
-                <Label>Name *</Label>
-                <Input
-                  value={dsrForm.name}
-                  onChange={(e) => setDsrForm({ ...dsrForm, name: e.target.value })}
-                  className="glass-input"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Name *</Label>
+                  <Input
+                    value={dsrForm.name}
+                    onChange={(e) => setDsrForm({ ...dsrForm, name: e.target.value })}
+                    className="glass-input"
+                  />
+                </div>
+                <div>
+                  <Label>DSR Number (ID)</Label>
+                  <Input
+                    value={dsrForm.dsr_number}
+                    onChange={(e) => setDsrForm({ ...dsrForm, dsr_number: e.target.value })}
+                    className="glass-input"
+                    placeholder="e.g. D-001"
+                  />
+                </div>
               </div>
-              <div>
-                <Label>Phone</Label>
-                <Input
-                  value={dsrForm.phone}
-                  onChange={(e) => setDsrForm({ ...dsrForm, phone: e.target.value })}
-                  className="glass-input"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Phone</Label>
+                  <Input
+                    value={dsrForm.phone}
+                    onChange={(e) => setDsrForm({ ...dsrForm, phone: e.target.value })}
+                    className="glass-input"
+                  />
+                </div>
+                <div>
+                  <Label>Captain</Label>
+                  <Select value={dsrForm.captain_id} onValueChange={(v) => setDsrForm({ ...dsrForm, captain_id: v })}>
+                    <SelectTrigger className="glass-input">
+                      <SelectValue placeholder="Select captain" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {captains.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div>
-                <Label>Captain</Label>
-                <Select value={dsrForm.captain_id} onValueChange={(v) => setDsrForm({ ...dsrForm, captain_id: v })}>
-                  <SelectTrigger className="glass-input">
-                    <SelectValue placeholder="Select captain" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {captains.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+
+              {/* FSS Account */}
+              <div className="space-y-2 p-3 rounded-lg border border-border/30 bg-muted/20">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="fss-account"
+                    checked={dsrForm.has_fss_account}
+                    onCheckedChange={(checked) => setDsrForm({ ...dsrForm, has_fss_account: !!checked })}
+                  />
+                  <Label htmlFor="fss-account" className="cursor-pointer">Has FSS Account</Label>
+                </div>
+                {dsrForm.has_fss_account && (
+                  <div>
+                    <Label>FSS Username</Label>
+                    <Input
+                      value={dsrForm.fss_username}
+                      onChange={(e) => setDsrForm({ ...dsrForm, fss_username: e.target.value })}
+                      className="glass-input"
+                      placeholder="FSS account username"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Working Station */}
+              <div className="space-y-3 p-3 rounded-lg border border-border/30 bg-muted/20">
+                <Label className="text-sm font-semibold">Working Station</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">District</Label>
+                    <Input
+                      value={dsrForm.district}
+                      onChange={(e) => setDsrForm({ ...dsrForm, district: e.target.value })}
+                      className="glass-input"
+                      placeholder="District"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Ward</Label>
+                    <Input
+                      value={dsrForm.ward}
+                      onChange={(e) => setDsrForm({ ...dsrForm, ward: e.target.value })}
+                      className="glass-input"
+                      placeholder="Ward"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Street / Village</Label>
+                  <Input
+                    value={dsrForm.street_village}
+                    onChange={(e) => setDsrForm({ ...dsrForm, street_village: e.target.value })}
+                    className="glass-input"
+                    placeholder="Street or village name"
+                  />
+                </div>
               </div>
             </div>
             <DialogFooter>

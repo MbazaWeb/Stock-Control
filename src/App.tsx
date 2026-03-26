@@ -16,6 +16,7 @@ const UnpaidPage = lazy(() => import("./pages/UnpaidPage"));
 const NoPackagePage = lazy(() => import("./pages/NoPackagePage"));
 const UnassignedPage = lazy(() => import("./pages/UnassignedPage"));
 const AddSalePage = lazy(() => import("./pages/AddSalePage"));
+const DSRPage = lazy(() => import("./pages/DSRPage"));
 const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const InventoryPage = lazy(() => import("./pages/admin/InventoryPage"));
@@ -60,6 +61,7 @@ const App = () => (
             <Route path="/no-package" element={<NoPackagePage />} />
             <Route path="/stock" element={<UnassignedPage />} />
             <Route path="/add-sale" element={<AddSalePage />} />
+            <Route path="/dsrs" element={<DSRPage />} />
             
             {/* Admin Auth */}
             <Route path="/admin/login" element={<AdminLogin />} />

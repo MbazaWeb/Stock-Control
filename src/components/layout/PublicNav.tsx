@@ -8,7 +8,8 @@ import {
   LogIn,
   Menu,
   X,
-  ShoppingCart
+  ShoppingCart,
+  Users
 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ const navItems = [
   { href: '/no-package', label: 'No Package', icon: PackageX },
   { href: '/stock', label: 'Stock', icon: Package },
   { href: '/add-sale', label: 'Add Sale', icon: ShoppingCart },
+  { href: '/dsrs', label: 'DSRs', icon: Users },
 ];
 
 export default function PublicNav() {
