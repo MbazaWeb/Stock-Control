@@ -4,30 +4,45 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
+import { lazy, Suspense } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Public Pages
+// Eager-load the public landing page for fast first paint
 import PublicDashboard from "./pages/PublicDashboard";
-import SearchStock from "./pages/SearchStock";
-import UnpaidPage from "./pages/UnpaidPage";
-import NoPackagePage from "./pages/NoPackagePage";
-import UnassignedPage from "./pages/UnassignedPage";import AddSalePage from './pages/AddSalePage';
-// Admin Pages
-import AdminLogin from "./pages/admin/AdminLogin";
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import InventoryPage from "./pages/admin/InventoryPage";
-import SalesTeamPage from "./pages/admin/SalesTeamPage";
-import SalesReportPage from "./pages/admin/SalesReportPage";
-import RecordSalePage from "./pages/admin/RecordSalePage";
-import AssignStockPage from "./pages/admin/AssignStockPage";
-import ZonesRegionsPage from "./pages/admin/ZonesRegionsPage";
-import SettingsPage from "./pages/admin/SettingsPage";
-import GlobalImportPage from "./pages/admin/GlobalImportPage";
-import SalesManagementPage from "./pages/admin/SalesManagementPage";
-import RegionalAdminPage from "./pages/admin/RegionalAdminPage";
-import AdminSearchPage from "./pages/admin/AdminSearchPage";import SalesApprovalPage from './pages/admin/SalesApprovalPage';
-import NotFound from "./pages/NotFound";
+
+// Lazy-load all other pages
+const SearchStock = lazy(() => import("./pages/SearchStock"));
+const UnpaidPage = lazy(() => import("./pages/UnpaidPage"));
+const NoPackagePage = lazy(() => import("./pages/NoPackagePage"));
+const UnassignedPage = lazy(() => import("./pages/UnassignedPage"));
+const AddSalePage = lazy(() => import("./pages/AddSalePage"));
+const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const InventoryPage = lazy(() => import("./pages/admin/InventoryPage"));
+const SalesTeamPage = lazy(() => import("./pages/admin/SalesTeamPage"));
+const SalesReportPage = lazy(() => import("./pages/admin/SalesReportPage"));
+const RecordSalePage = lazy(() => import("./pages/admin/RecordSalePage"));
+const AssignStockPage = lazy(() => import("./pages/admin/AssignStockPage"));
+const ZonesRegionsPage = lazy(() => import("./pages/admin/ZonesRegionsPage"));
+const SettingsPage = lazy(() => import("./pages/admin/SettingsPage"));
+const GlobalImportPage = lazy(() => import("./pages/admin/GlobalImportPage"));
+const SalesManagementPage = lazy(() => import("./pages/admin/SalesManagementPage"));
+const RegionalAdminPage = lazy(() => import("./pages/admin/RegionalAdminPage"));
+const AdminSearchPage = lazy(() => import("./pages/admin/AdminSearchPage"));
+const SalesApprovalPage = lazy(() => import("./pages/admin/SalesApprovalPage"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
+
+const PageLoader = () => (
+  <div className="min-h-screen flex items-center justify-center">
+    <div className="space-y-4 w-64">
+      <Skeleton className="h-8 w-full" />
+      <Skeleton className="h-4 w-3/4" />
+      <Skeleton className="h-4 w-1/2" />
+    </div>
+  </div>
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -36,7 +51,8 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <Routes>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
             {/* Public Routes */}
             <Route path="/" element={<PublicDashboard />} />
             <Route path="/search" element={<SearchStock />} />
@@ -65,6 +81,7 @@ const App = () => (
             
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
         </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>

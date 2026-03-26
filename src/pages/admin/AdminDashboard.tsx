@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, type ElementType } from 'react';
 import { 
   Package, 
   TrendingUp, 
@@ -80,8 +80,21 @@ interface QuickStat {
   label: string;
   value: string;
   change: number;
-  icon: any;
+  icon: ElementType;
   color: string;
+}
+
+interface WeeklyDataPoint {
+  day: string;
+  date: string;
+  dateFull: string;
+  units: number;
+}
+
+interface MonthlyDataPoint {
+  month: string;
+  year: number;
+  units: number;
 }
 
 interface SaleRecord {
@@ -121,8 +134,8 @@ export default function AdminDashboard() {
   
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [weeklyData, setWeeklyData] = useState<any[]>([]);
-  const [monthlyData, setMonthlyData] = useState<any[]>([]);
+  const [weeklyData, setWeeklyData] = useState<WeeklyDataPoint[]>([]);
+  const [monthlyData, setMonthlyData] = useState<MonthlyDataPoint[]>([]);
   const [topTLs, setTopTLs] = useState<Array<{name: string, sold: number, assigned: number, conversion: number}>>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [quickStats, setQuickStats] = useState<QuickStat[]>([]);
@@ -151,6 +164,7 @@ export default function AdminDashboard() {
     fetchDashboardData();
     const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoneFilter, regionFilter]);
 
   const fetchTLStockData = async () => {
@@ -193,7 +207,7 @@ export default function AdminDashboard() {
         totalAssigned += assigned;
         totalSold += sold;
         totalInHand += inHand;
-        return { name: tl.name, sold, assigned, inHand, conversion: parseFloat(conversion.toFixed(1)), region: (tl.regions as any)?.name || 'Unassigned' };
+        return { name: tl.name, sold, assigned, inHand, conversion: parseFloat(conversion.toFixed(1)), region: (tl.regions as { name: string } | null)?.name || 'Unassigned' };
       });
 
       const sortedTLs = tlPerformance
@@ -421,7 +435,7 @@ export default function AdminDashboard() {
       const weekCounts: Record<string, number> = {};
       (weekSales || []).forEach(r => { weekCounts[r.sale_date] = (weekCounts[r.sale_date] || 0) + 1; });
 
-      const weekly: any[] = [];
+      const weekly: WeeklyDataPoint[] = [];
       for (let i = 6; i >= 0; i--) {
         const date = new Date();
         date.setDate(date.getDate() - i);
@@ -452,7 +466,7 @@ export default function AdminDashboard() {
         monthCounts[key] = (monthCounts[key] || 0) + 1;
       });
 
-      const monthly: any[] = [];
+      const monthly: MonthlyDataPoint[] = [];
       for (let i = 11; i >= 0; i--) {
         const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
         const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -786,7 +800,7 @@ export default function AdminDashboard() {
                 Sales Performance (Units)
               </h3>
               <div className="flex gap-2">
-                <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as any)}>
+                <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as 'week' | 'month' | 'quarter')}>
                   <TabsList className="glass-input p-1">
                     <TabsTrigger value="week" className="text-xs px-3">Week</TabsTrigger>
                     <TabsTrigger value="month" className="text-xs px-3">Month</TabsTrigger>
@@ -866,7 +880,7 @@ export default function AdminDashboard() {
                   <Users className="h-6 w-6 md:h-8 md:w-8 mx-auto text-primary mb-1 md:mb-2 group-hover:scale-110 transition-transform" />
                   <span className="font-medium text-xs md:text-base">Manage Team</span>
                 </a>
-                <a href="/admin/sales" className="glass-button text-center p-2 md:p-4 hover:shadow-gold transition-all group">
+                <a href="/admin/record-sales" className="glass-button text-center p-2 md:p-4 hover:shadow-gold transition-all group">
                   <BarChart3 className="h-6 w-6 md:h-8 md:w-8 mx-auto text-secondary mb-1 md:mb-2 group-hover:scale-110 transition-transform" />
                   <span className="font-medium text-xs md:text-base">View Sales</span>
                 </a>
