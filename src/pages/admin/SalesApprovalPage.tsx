@@ -92,16 +92,16 @@ export default function SalesApprovalPage() {
       const { data, error } = await query;
       if (error) throw error;
 
-      const formatted = (data || []).map((item: Record<string, unknown>) => ({
+      const formatted = (data || []).map((item) => ({
         ...item,
-        team_leader: item.team_leaders,
-        captain: item.captains,
-        dsr: item.dsrs,
-        zone: item.zones,
-        region: item.regions,
+        team_leader: (item as Record<string, unknown>).team_leaders as PendingSale['team_leader'],
+        captain: (item as Record<string, unknown>).captains as PendingSale['captain'],
+        dsr: (item as Record<string, unknown>).dsrs as PendingSale['dsr'],
+        zone: (item as Record<string, unknown>).zones as PendingSale['zone'],
+        region: (item as Record<string, unknown>).regions as PendingSale['region'],
       }));
 
-      setPendingSales(formatted);
+      setPendingSales(formatted as PendingSale[]);
     } catch (error) {
       console.error('Error fetching pending sales:', error);
     } finally {
