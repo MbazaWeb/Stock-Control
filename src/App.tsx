@@ -42,7 +42,7 @@ const App = () => (
             <Route path="/search" element={<SearchStock />} />
             <Route path="/unpaid" element={<UnpaidPage />} />
             <Route path="/no-package" element={<NoPackagePage />} />
-            <Route path="/unassigned" element={<UnassignedPage />} />
+            <Route path="/stock" element={<UnassignedPage />} />
             <Route path="/add-sale" element={<AddSalePage />} />
             
             {/* Admin Auth */}

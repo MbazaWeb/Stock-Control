@@ -4,7 +4,7 @@ import {
   Search, 
   CreditCard, 
   PackageX, 
-  AlertTriangle,
+  Package,
   LogIn,
   Menu,
   X,
@@ -19,7 +19,7 @@ const navItems = [
   { href: '/search', label: 'Search', icon: Search },
   { href: '/unpaid', label: 'Unpaid', icon: CreditCard },
   { href: '/no-package', label: 'No Package', icon: PackageX },
-  { href: '/unassigned', label: 'Unassigned', icon: AlertTriangle },
+  { href: '/stock', label: 'Stock', icon: Package },
   { href: '/add-sale', label: 'Add Sale', icon: ShoppingCart },
 ];
 

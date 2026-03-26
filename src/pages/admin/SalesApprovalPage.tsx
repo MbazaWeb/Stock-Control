@@ -92,7 +92,7 @@ export default function SalesApprovalPage() {
       const { data, error } = await query;
       if (error) throw error;
 
-      const formatted = (data || []).map((item: any) => ({
+      const formatted = (data || []).map((item: Record<string, unknown>) => ({
         ...item,
         team_leader: item.team_leaders,
         captain: item.captains,

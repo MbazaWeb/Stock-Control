@@ -125,20 +125,37 @@ export default function SearchStock() {
           .ilike(searchType === 'smartcard' ? 'smartcard_number' : 'serial_number', `%${searchQuery}%`)
           .limit(100);
 
-        // Fetch assigned person names for inventory items
+        // Fetch assigned person names for inventory items (resolve full hierarchy)
         const inventoryWithNames = await Promise.all((inventoryData || []).map(async (item: any) => {
-          let assigned_to_name = null;
+          let tl_name: string | null = null;
+          let captain_name: string | null = null;
+          let dsr_name: string | null = null;
+
           if (item.assigned_to_id && item.assigned_to_type) {
-            const table = item.assigned_to_type === 'team_leader' ? 'team_leaders' 
-              : item.assigned_to_type === 'captain' ? 'captains' : 'dsrs';
-            const { data: personData } = await supabase
-              .from(table)
-              .select('name')
-              .eq('id', item.assigned_to_id)
-              .single();
-            assigned_to_name = personData?.name || null;
+            if (item.assigned_to_type === 'team_leader') {
+              const { data: tlData } = await supabase.from('team_leaders').select('name').eq('id', item.assigned_to_id).single();
+              tl_name = tlData?.name || null;
+            } else if (item.assigned_to_type === 'captain') {
+              const { data: captainData } = await supabase.from('captains').select('name, team_leader_id').eq('id', item.assigned_to_id).single();
+              captain_name = captainData?.name || null;
+              if (captainData?.team_leader_id) {
+                const { data: tlData } = await supabase.from('team_leaders').select('name').eq('id', captainData.team_leader_id).single();
+                tl_name = tlData?.name || null;
+              }
+            } else if (item.assigned_to_type === 'dsr') {
+              const { data: dsrData } = await supabase.from('dsrs').select('name, captain_id').eq('id', item.assigned_to_id).single();
+              dsr_name = dsrData?.name || null;
+              if (dsrData?.captain_id) {
+                const { data: captainData } = await supabase.from('captains').select('name, team_leader_id').eq('id', dsrData.captain_id).single();
+                captain_name = captainData?.name || null;
+                if (captainData?.team_leader_id) {
+                  const { data: tlData } = await supabase.from('team_leaders').select('name').eq('id', captainData.team_leader_id).single();
+                  tl_name = tlData?.name || null;
+                }
+              }
+            }
           }
-          return { ...item, assigned_to_name };
+          return { ...item, tl_name, captain_name, dsr_name };
         }));
 
         // Search in sales
@@ -169,10 +186,10 @@ export default function SearchStock() {
           region: item.regions,
           assigned_to_type: item.assigned_to_type,
           assigned_to_id: item.assigned_to_id,
-          assigned_to_name: item.assigned_to_name,
-          team_leader: item.assigned_to_type === 'team_leader' && item.assigned_to_name ? { name: item.assigned_to_name } : null,
-          captain: item.assigned_to_type === 'captain' && item.assigned_to_name ? { name: item.assigned_to_name } : null,
-          dsr: item.assigned_to_type === 'dsr' && item.assigned_to_name ? { name: item.assigned_to_name } : null,
+          assigned_to_name: item.tl_name || item.captain_name || item.dsr_name,
+          team_leader: item.tl_name ? { name: item.tl_name } : null,
+          captain: item.captain_name ? { name: item.captain_name } : null,
+          dsr: item.dsr_name ? { name: item.dsr_name } : null,
           created_at: item.created_at,
           source: 'inventory' as const
         }));

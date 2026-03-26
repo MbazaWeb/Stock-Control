@@ -811,6 +811,18 @@ export default function AssignStockPage() {
                   ))}
                 </SelectContent>
               </Select>
+
+              <Select value={regionFilter} onValueChange={setRegionFilter}>
+                <SelectTrigger className="w-[150px] glass-input">
+                  <SelectValue placeholder="Region" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Regions</SelectItem>
+                  {(zoneFilter === 'all' ? regions : regions.filter(r => r.zone_id === zoneFilter)).map(region => (
+                    <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
