@@ -472,11 +472,11 @@ export default function SearchStock() {
           <Warehouse className="h-3 w-3 mr-1" /> In Warehouse
         </Badge>;
       case 'assigned':
-        return <Badge className="bg-orange-500/20 text-orange-600 border-orange-500/30 font-semibold">
+        return <Badge className="bg-yellow-500/20 text-yellow-500 border-yellow-500/30 font-semibold">
           <HandCoins className="h-3 w-3 mr-1" /> In-hand
         </Badge>;
       case 'sold':
-        return <Badge className="bg-red-500/20 text-red-500 border-red-500/30 font-semibold">
+        return <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30 font-semibold">
           <CreditCard className="h-3 w-3 mr-1" /> Sold
         </Badge>;
       default:
@@ -496,11 +496,11 @@ export default function SearchStock() {
     }
     if (item.status === 'sold' || item.source === 'sale') {
       return (
-        <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-red-500/10 border border-red-500/20">
-          <CreditCard className="h-5 w-5 text-red-500" />
-          <span className="text-sm font-bold text-red-500">SOLD</span>
+        <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+          <CreditCard className="h-5 w-5 text-blue-500" />
+          <span className="text-sm font-bold text-blue-500">SOLD</span>
           {item.sale_date && (
-            <span className="text-xs text-red-400 ml-auto">
+            <span className="text-xs text-blue-400 ml-auto">
               {new Date(item.sale_date).toLocaleDateString()}
             </span>
           )}
@@ -509,11 +509,11 @@ export default function SearchStock() {
     }
     if (item.status === 'assigned') {
       return (
-        <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-orange-500/10 border border-orange-500/20">
-          <HandCoins className="h-5 w-5 text-orange-500" />
-          <span className="text-sm font-bold text-orange-600">IN-HAND</span>
+        <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+          <HandCoins className="h-5 w-5 text-yellow-500" />
+          <span className="text-sm font-bold text-yellow-600">IN-HAND</span>
           {item.assigned_to_name && (
-            <span className="text-xs text-orange-400 ml-auto">
+            <span className="text-xs text-yellow-400 ml-auto">
               Held by: {item.assigned_to_name}
             </span>
           )}
@@ -540,10 +540,10 @@ export default function SearchStock() {
 
   const getPackageBadge = (status: string) => {
     return status === 'Packaged'
-      ? <Badge className="bg-green-500/20 text-green-500 border-green-500/30">
+      ? <Badge className="bg-purple-500/20 text-purple-500 border-purple-500/30">
           <Package className="h-3 w-3 mr-1" />Packaged
         </Badge>
-      : <Badge className="bg-red-500/20 text-red-500 border-red-500/30">
+      : <Badge className="bg-pink-500/20 text-pink-500 border-pink-500/30">
           <XCircle className="h-3 w-3 mr-1" />No Package
         </Badge>;
   };

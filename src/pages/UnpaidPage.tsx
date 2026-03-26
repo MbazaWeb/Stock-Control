@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { CreditCard, Search, Eye, Calendar, Phone, User, Package, Users, Filter } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import PublicLayout from '@/components/layout/PublicLayout';
@@ -200,8 +200,8 @@ export default function UnpaidPage() {
 
   const getStatusColor = (status: string) => {
     return status === 'Packaged' 
-      ? 'bg-green-500/20 text-green-500 border-green-500/30' 
-      : 'bg-red-500/20 text-red-500 border-red-500/30';
+      ? 'bg-purple-500/20 text-purple-500 border-purple-500/30' 
+      : 'bg-pink-500/20 text-pink-500 border-pink-500/30';
   };
 
   const getTimeAgo = (dateString: string) => {
@@ -217,9 +217,31 @@ export default function UnpaidPage() {
     return `${Math.floor(diffDays / 30)} months ago`;
   };
 
+  const TL_COLORS = [
+    'bg-purple-500/20 text-purple-500 border-purple-500/30',
+    'bg-indigo-500/20 text-indigo-500 border-indigo-500/30',
+    'bg-pink-500/20 text-pink-500 border-pink-500/30',
+    'bg-orange-500/20 text-orange-500 border-orange-500/30',
+    'bg-teal-500/20 text-teal-500 border-teal-500/30',
+    'bg-cyan-500/20 text-cyan-500 border-cyan-500/30',
+    'bg-rose-500/20 text-rose-500 border-rose-500/30',
+    'bg-amber-500/20 text-amber-500 border-amber-500/30',
+    'bg-lime-500/20 text-lime-500 border-lime-500/30',
+    'bg-fuchsia-500/20 text-fuchsia-500 border-fuchsia-500/30',
+  ];
+
+  const tlColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const uniqueTLs = [...new Set(sales.map(s => s.team_leader?.name).filter(Boolean))] as string[];
+    uniqueTLs.forEach((name, i) => {
+      map.set(name, TL_COLORS[i % TL_COLORS.length]);
+    });
+    return map;
+  }, [sales]);
+
   const getTeamBadge = (type: 'tl' | 'captain' | 'dsr', name: string) => {
     const config = {
-      tl: { className: 'bg-purple-500/20 text-purple-500 border-purple-500/30' },
+      tl: { className: tlColorMap.get(name) || TL_COLORS[0] },
       captain: { className: 'bg-blue-500/20 text-blue-500 border-blue-500/30' },
       dsr: { className: 'bg-green-500/20 text-green-500 border-green-500/30' }
     };

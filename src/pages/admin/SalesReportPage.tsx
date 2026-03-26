@@ -589,10 +589,10 @@ export default function SalesReportPage() {
                                 <Badge className="bg-green-500/20 text-green-500 border-green-500/30">Available</Badge>
                               )}
                               {item.status === 'assigned' && (
-                                <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30">In Hand</Badge>
+                                <Badge className="bg-yellow-500/20 text-yellow-500 border-yellow-500/30">In Hand</Badge>
                               )}
                               {item.status === 'sold' && (
-                                <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30">Sold</Badge>
+                                <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30">Sold</Badge>
                               )}
                             </TableCell>
                             <TableCell>
@@ -603,8 +603,8 @@ export default function SalesReportPage() {
                             </TableCell>
                             <TableCell>
                               {item.package_status === 'Packaged'
-                                ? <Badge className="bg-green-500/20 text-green-500 border-green-500/30">Packaged</Badge>
-                                : <Badge className="bg-red-500/20 text-red-500 border-red-500/30">{item.package_status}</Badge>
+                                ? <Badge className="bg-purple-500/20 text-purple-500 border-purple-500/30">Packaged</Badge>
+                                : <Badge className="bg-pink-500/20 text-pink-500 border-pink-500/30">{item.package_status}</Badge>
                               }
                             </TableCell>
                             <TableCell className="text-sm">{assignedLabel}</TableCell>
@@ -664,8 +664,8 @@ export default function SalesReportPage() {
                           </TableCell>
                           <TableCell>
                             {sale.package_status === 'Packaged'
-                              ? <Badge className="bg-green-500/20 text-green-500 border-green-500/30">Packaged</Badge>
-                              : <Badge className="bg-red-500/20 text-red-500 border-red-500/30">No Package</Badge>
+                              ? <Badge className="bg-purple-500/20 text-purple-500 border-purple-500/30">Packaged</Badge>
+                              : <Badge className="bg-pink-500/20 text-pink-500 border-pink-500/30">No Package</Badge>
                             }
                           </TableCell>
                           <TableCell>{sale.team_leader_id ? tlNames[sale.team_leader_id] || '-' : '-'}</TableCell>

@@ -313,8 +313,8 @@ export default function SalesApprovalPage() {
                       </TableCell>
                       <TableCell className="hidden lg:table-cell">
                         <Badge className={sale.package_status === 'Packaged'
-                          ? 'bg-green-500/20 text-green-500 border-green-500/30'
-                          : 'bg-red-500/20 text-red-500 border-red-500/30'
+                          ? 'bg-purple-500/20 text-purple-500 border-purple-500/30'
+                          : 'bg-pink-500/20 text-pink-500 border-pink-500/30'
                         }>
                           {sale.package_status}
                         </Badge>
@@ -379,7 +379,7 @@ export default function SalesApprovalPage() {
                   <div><span className="text-muted-foreground text-xs">Customer</span><div>{detailItem.customer_name || '—'}</div></div>
                   <div><span className="text-muted-foreground text-xs">Sale Date</span><div>{new Date(detailItem.sale_date).toLocaleDateString()}</div></div>
                   <div><span className="text-muted-foreground text-xs">Payment</span><div><Badge className={detailItem.payment_status === 'Paid' ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}>{detailItem.payment_status}</Badge></div></div>
-                  <div><span className="text-muted-foreground text-xs">Package</span><div><Badge className={detailItem.package_status === 'Packaged' ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}>{detailItem.package_status}</Badge></div></div>
+                  <div><span className="text-muted-foreground text-xs">Package</span><div><Badge className={detailItem.package_status === 'Packaged' ? 'bg-purple-500/20 text-purple-500' : 'bg-pink-500/20 text-pink-500'}>{detailItem.package_status}</Badge></div></div>
                 </div>
                 {detailItem.team_leader?.name && <div className="flex items-center gap-1"><Shield className="h-3 w-3" />TL: {detailItem.team_leader.name}</div>}
                 {detailItem.captain?.name && <div className="flex items-center gap-1"><UserPlus className="h-3 w-3" />Captain: {detailItem.captain.name}</div>}

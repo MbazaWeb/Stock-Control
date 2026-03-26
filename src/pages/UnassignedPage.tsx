@@ -319,9 +319,9 @@ export default function UnassignedPage() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'Sold': return <Badge className="badge-destructive">Sold</Badge>;
-      case 'In-hand': return <Badge className="badge-warning">In-hand</Badge>;
-      default: return <Badge className="badge-blue">In Warehouse</Badge>;
+      case 'Sold': return <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30">Sold</Badge>;
+      case 'In-hand': return <Badge className="bg-yellow-500/20 text-yellow-500 border-yellow-500/30">In-hand</Badge>;
+      default: return <Badge className="bg-green-500/20 text-green-500 border-green-500/30">In Warehouse</Badge>;
     }
   };
 

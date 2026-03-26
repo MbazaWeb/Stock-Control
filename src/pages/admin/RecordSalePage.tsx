@@ -534,7 +534,7 @@ export default function RecordSalePage() {
                           className={
                             sale.payment_status === 'Paid'
                               ? 'bg-green-500/20 text-green-500 border-green-500/30'
-                              : 'bg-destructive/20 text-destructive border-destructive/30'
+                              : 'bg-red-500/20 text-red-500 border-red-500/30'
                           }
                         >
                           {sale.payment_status}
@@ -558,8 +558,8 @@ export default function RecordSalePage() {
                         <Badge
                           className={
                             sale.package_status === 'Packaged'
-                              ? 'bg-green-500/20 text-green-500 border-green-500/30'
-                              : 'bg-destructive/20 text-destructive border-destructive/30'
+                              ? 'bg-purple-500/20 text-purple-500 border-purple-500/30'
+                              : 'bg-pink-500/20 text-pink-500 border-pink-500/30'
                           }
                         >
                           {sale.package_status}

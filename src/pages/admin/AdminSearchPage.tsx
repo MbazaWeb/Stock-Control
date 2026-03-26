@@ -763,9 +763,9 @@ export default function AdminSearchPage() {
           ? <Badge className="bg-green-500/20 text-green-500 border-green-500/30"><CheckCircle2 className="h-3 w-3 mr-1" /> Available</Badge>
           : <Badge className="bg-gray-500/20 text-gray-600 border-gray-500/30"><Package className="h-3 w-3 mr-1" /> Not Assigned</Badge>;
       case 'assigned':
-        return <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30"><Users className="h-3 w-3 mr-1" /> In Hand</Badge>;
+        return <Badge className="bg-yellow-500/20 text-yellow-500 border-yellow-500/30"><Users className="h-3 w-3 mr-1" /> In Hand</Badge>;
       case 'sold':
-        return <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30"><CreditCard className="h-3 w-3 mr-1" /> Sold</Badge>;
+        return <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30"><CreditCard className="h-3 w-3 mr-1" /> Sold</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -779,8 +779,8 @@ export default function AdminSearchPage() {
 
   const getPackageBadge = (status: string) => {
     return status === 'Packaged'
-      ? <Badge className="bg-green-500/20 text-green-500 border-green-500/30"><Package className="h-3 w-3 mr-1" />Packaged</Badge>
-      : <Badge className="bg-red-500/20 text-red-500 border-red-500/30"><XCircle className="h-3 w-3 mr-1" />No Package</Badge>;
+      ? <Badge className="bg-purple-500/20 text-purple-500 border-purple-500/30"><Package className="h-3 w-3 mr-1" />Packaged</Badge>
+      : <Badge className="bg-pink-500/20 text-pink-500 border-pink-500/30"><XCircle className="h-3 w-3 mr-1" />No Package</Badge>;
   };
 
   const getTeamBadge = (type: 'tl' | 'captain' | 'dsr', name: string) => {

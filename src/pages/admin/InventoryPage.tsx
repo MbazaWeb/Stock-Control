@@ -706,7 +706,7 @@ export default function InventoryPage() {
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm">Sold</span>
-                      <Badge className="bg-red-500/20 text-red-500 text-xs">
+                      <Badge className="bg-blue-500/20 text-blue-500 text-xs">
                         {summary.sold}
                       </Badge>
                     </div>
@@ -718,7 +718,7 @@ export default function InventoryPage() {
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm">In-hand</span>
-                      <Badge className="bg-amber-500/20 text-amber-500 text-xs">
+                      <Badge className="bg-yellow-500/20 text-yellow-500 text-xs">
                         {summary.inhand}
                       </Badge>
                     </div>

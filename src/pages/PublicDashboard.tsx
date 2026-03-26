@@ -601,7 +601,7 @@ export default function PublicDashboard() {
                         <div>
                           <div className="flex items-center gap-2">
                             <div className="text-sm font-medium">{sale.smartcard_number}</div>
-                            <Badge variant="outline" className="text-xs">
+                            <Badge className={`text-xs ${sale.package_status === 'Packaged' ? 'bg-purple-500/20 text-purple-500 border-purple-500/30' : 'bg-pink-500/20 text-pink-500 border-pink-500/30'}`}>
                               {sale.package_status === 'Packaged' ? '✓ Packaged' : 'No Package'}
                             </Badge>
                           </div>
@@ -612,8 +612,7 @@ export default function PublicDashboard() {
                         <div className="text-right">
                           <div className="text-sm font-medium">{sale.sale_time}</div>
                           <Badge 
-                            variant={sale.payment_status === 'Paid' ? 'success' : 'warning'} 
-                            className="text-xs mt-1"
+                            className={`text-xs mt-1 ${sale.payment_status === 'Paid' ? 'bg-green-500/20 text-green-500 border-green-500/30' : 'bg-red-500/20 text-red-500 border-red-500/30'}`}
                           >
                             {sale.payment_status}
                           </Badge>

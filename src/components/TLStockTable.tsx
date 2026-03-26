@@ -110,13 +110,13 @@ export default function TLStockTable() {
           <p className="text-xl font-bold">{totals.assigned}</p>
           <p className="text-xs text-muted-foreground">Assigned</p>
         </div>
-        <div className="bg-green-500/10 rounded-xl p-3 text-center">
-          <Package className="h-5 w-5 mx-auto text-green-500 mb-1" />
+        <div className="bg-yellow-500/10 rounded-xl p-3 text-center">
+          <Package className="h-5 w-5 mx-auto text-yellow-500 mb-1" />
           <p className="text-xl font-bold">{totals.inHand}</p>
           <p className="text-xs text-muted-foreground">In Hand</p>
         </div>
-        <div className="bg-secondary/10 rounded-xl p-3 text-center">
-          <TrendingUp className="h-5 w-5 mx-auto text-secondary mb-1" />
+        <div className="bg-blue-500/10 rounded-xl p-3 text-center">
+          <TrendingUp className="h-5 w-5 mx-auto text-blue-500 mb-1" />
           <p className="text-xl font-bold">{totals.sold}</p>
           <p className="text-xs text-muted-foreground">Sold</p>
         </div>
@@ -145,10 +145,10 @@ export default function TLStockTable() {
                   <Badge variant="outline" className="bg-blue-500/10 text-blue-600">{tl.assigned}</Badge>
                 </td>
                 <td className="py-2 px-3 text-center">
-                  <Badge variant="outline" className="bg-green-500/10 text-green-600">{tl.inHand}</Badge>
+                  <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600">{tl.inHand}</Badge>
                 </td>
                 <td className="py-2 px-3 text-center">
-                  <Badge variant="outline" className="bg-secondary/10 text-secondary">{tl.sold}</Badge>
+                  <Badge variant="outline" className="bg-blue-500/10 text-blue-600">{tl.sold}</Badge>
                 </td>
               </tr>
             ))}

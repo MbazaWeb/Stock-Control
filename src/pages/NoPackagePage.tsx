@@ -213,8 +213,8 @@ export default function NoPackagePage() {
                         <Badge
                           className={
                             sale.payment_status === 'Paid'
-                              ? 'badge-success'
-                              : 'badge-warning'
+                              ? 'bg-green-500/20 text-green-500 border-green-500/30'
+                              : 'bg-red-500/20 text-red-500 border-red-500/30'
                           }
                         >
                           {sale.payment_status}
