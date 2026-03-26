@@ -46,10 +46,10 @@ export default function StatsCard({
     <div className={cn("stats-card", className)}>
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <p className="text-sm text-muted-foreground font-medium">{title}</p>
-          <p className="text-3xl font-bold mt-2 font-display">{value}</p>
+          <p className="text-xs md:text-sm text-muted-foreground font-medium">{title}</p>
+          <p className="text-xl md:text-3xl font-bold mt-1 md:mt-2 font-display">{value}</p>
           {subtitle && (
-            <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
+            <p className="text-[11px] md:text-sm text-muted-foreground mt-0.5 md:mt-1 leading-tight">{subtitle}</p>
           )}
           {trend && (
             <div className="flex items-center gap-1 mt-2">
@@ -66,7 +66,7 @@ export default function StatsCard({
           )}
         </div>
         <div className={cn(variantStyles[variant])}>
-          <Icon className={cn("h-6 w-6", iconColors[variant])} />
+          <Icon className={cn("h-5 w-5 md:h-6 md:w-6", iconColors[variant])} />
         </div>
       </div>
     </div>

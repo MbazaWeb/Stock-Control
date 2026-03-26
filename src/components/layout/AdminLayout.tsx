@@ -36,7 +36,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   return (
     <div className="min-h-dvh flex">
       <AdminSidebar />
-      <main className="flex-1 md:ml-64 pt-16 md:pt-0 p-4 md:p-6 overflow-auto">
+      <main className="flex-1 md:ml-64 pt-14 md:pt-0 px-2 py-2 md:p-6 overflow-auto">
         <div className="max-w-7xl mx-auto animate-fade-in">
           {children}
         </div>

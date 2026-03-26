@@ -212,20 +212,20 @@ export default function UnpaidPage() {
 
   return (
     <PublicLayout>
-      <div className="space-y-6">
+      <div className="space-y-3 md:space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
           <div>
-            <h1 className="text-3xl md:text-4xl font-display font-bold">
+            <h1 className="text-xl md:text-3xl font-display font-bold">
               <span className="bg-gradient-to-r from-warning to-secondary bg-clip-text text-transparent">
                 Unpaid Stock
               </span>
             </h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-xs md:text-base text-muted-foreground mt-0.5">
               {filteredSales.length} stock item{filteredSales.length !== 1 ? 's' : ''} pending payment • View Only
             </p>
           </div>
-          <Badge className="badge-warning text-lg py-2 px-4 self-start">
+          <Badge className="badge-warning text-sm md:text-lg py-1 md:py-2 px-3 md:px-4 self-start">
             <CreditCard className="h-5 w-5 mr-2" />
             {filteredSales.length} Unpaid
           </Badge>

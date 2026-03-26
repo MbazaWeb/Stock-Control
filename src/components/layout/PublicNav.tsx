@@ -27,14 +27,14 @@ export default function PublicNav() {
 
   return (
     <nav className="nav-glass">
-      <div className="container mx-auto px-4">
-        <div className="flex h-16 items-center justify-between">
+      <div className="container mx-auto px-2 md:px-4">
+        <div className="flex h-14 md:h-16 items-center justify-between">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-3">
-            <div className="icon-container-blue">
-              <LayoutDashboard className="h-5 w-5 text-white" />
+          <Link to="/" className="flex items-center gap-2 md:gap-3">
+            <div className="icon-container-blue p-2 md:p-3">
+              <LayoutDashboard className="h-4 w-4 md:h-5 md:w-5 text-white" />
             </div>
-            <span className="font-display text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+            <span className="font-display text-base md:text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
               StockFlow
             </span>
           </Link>

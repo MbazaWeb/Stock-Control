@@ -11,7 +11,7 @@ export default function GlassCard({ children, className, hover = true }: GlassCa
   return (
     <div
       className={cn(
-        "glass-card p-6 animate-fade-in",
+        "glass-card p-3 md:p-6 animate-fade-in",
         hover && "transition-all duration-300 hover:scale-[1.01] hover:shadow-elevated",
         className
       )}

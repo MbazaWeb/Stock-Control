@@ -602,16 +602,16 @@ export default function InventoryPage() {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
+      <div className="space-y-3 md:space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 md:gap-4">
           <div>
-            <h1 className="text-3xl font-display font-bold">
+            <h1 className="text-xl md:text-3xl font-display font-bold">
               <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
                 Inventory Management
               </span>
             </h1>
-            <p className="text-muted-foreground mt-1">Add, edit, and manage stock</p>
+            <p className="text-xs md:text-base text-muted-foreground mt-0.5">Add, edit, and manage stock</p>
           </div>
           <div className="flex gap-2 flex-wrap">
             <Button variant="outline" className="glass-button" onClick={() => setBulkDialogOpen(true)}>
@@ -648,31 +648,31 @@ export default function InventoryPage() {
         </div>
 
         {/* Overall Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-4">
           <GlassCard className="text-center">
-            <Box className="h-8 w-8 mx-auto text-primary mb-2" />
-            <p className="text-2xl font-bold">{stats.total}</p>
-            <p className="text-xs text-muted-foreground">Total Stock</p>
+            <Box className="h-5 w-5 md:h-8 md:w-8 mx-auto text-primary mb-1 md:mb-2" />
+            <p className="text-lg md:text-2xl font-bold">{stats.total}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground">Total Stock</p>
           </GlassCard>
           <GlassCard className="text-center">
-            <Check className="h-8 w-8 mx-auto text-green-500 mb-2" />
-            <p className="text-2xl font-bold text-green-500">{stats.available}</p>
-            <p className="text-xs text-muted-foreground">Available</p>
+            <Check className="h-5 w-5 md:h-8 md:w-8 mx-auto text-green-500 mb-1 md:mb-2" />
+            <p className="text-lg md:text-2xl font-bold text-green-500">{stats.available}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground">Available</p>
           </GlassCard>
           <GlassCard className="text-center">
-            <X className="h-8 w-8 mx-auto text-red-500 mb-2" />
-            <p className="text-2xl font-bold text-red-500">{stats.sold}</p>
-            <p className="text-xs text-muted-foreground">Sold</p>
+            <X className="h-5 w-5 md:h-8 md:w-8 mx-auto text-red-500 mb-1 md:mb-2" />
+            <p className="text-lg md:text-2xl font-bold text-red-500">{stats.sold}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground">Sold</p>
           </GlassCard>
           <GlassCard className="text-center">
-            <Users className="h-8 w-8 mx-auto text-blue-500 mb-2" />
-            <p className="text-2xl font-bold text-blue-500">{stats.assigned}</p>
-            <p className="text-xs text-muted-foreground">Assigned</p>
+            <Users className="h-5 w-5 md:h-8 md:w-8 mx-auto text-blue-500 mb-1 md:mb-2" />
+            <p className="text-lg md:text-2xl font-bold text-blue-500">{stats.assigned}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground">Assigned</p>
           </GlassCard>
           <GlassCard className="text-center">
-            <ShoppingCart className="h-8 w-8 mx-auto text-amber-500 mb-2" />
-            <p className="text-2xl font-bold text-amber-500">{stats.inhand}</p>
-            <p className="text-xs text-muted-foreground">In-hand</p>
+            <ShoppingCart className="h-5 w-5 md:h-8 md:w-8 mx-auto text-amber-500 mb-1 md:mb-2" />
+            <p className="text-lg md:text-2xl font-bold text-amber-500">{stats.inhand}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground">In-hand</p>
           </GlassCard>
         </div>
 

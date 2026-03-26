@@ -210,10 +210,10 @@ export default function ZonesRegionsPage() {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
+      <div className="space-y-3 md:space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-display font-bold">
+          <h1 className="text-xl md:text-3xl font-display font-bold">
             <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
               Zones & Regions
             </span>

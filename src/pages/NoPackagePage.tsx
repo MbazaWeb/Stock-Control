@@ -88,20 +88,20 @@ export default function NoPackagePage() {
 
   return (
     <PublicLayout>
-      <div className="space-y-6">
+      <div className="space-y-3 md:space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
           <div>
-            <h1 className="text-3xl md:text-4xl font-display font-bold">
+            <h1 className="text-xl md:text-3xl font-display font-bold">
               <span className="bg-gradient-to-r from-destructive to-warning bg-clip-text text-transparent">
                 No Package
               </span>
             </h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-xs md:text-base text-muted-foreground mt-0.5">
               {filteredSales.length} sale{filteredSales.length !== 1 ? 's' : ''} without package
             </p>
           </div>
-          <Badge className="badge-destructive text-lg py-2 px-4 self-start">
+          <Badge className="badge-destructive text-sm md:text-lg py-1 md:py-2 px-3 md:px-4 self-start">
             <PackageX className="h-5 w-5 mr-2" />
             {filteredSales.length} No Package
           </Badge>

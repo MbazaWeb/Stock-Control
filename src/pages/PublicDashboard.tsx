@@ -353,89 +353,88 @@ export default function PublicDashboard() {
 
   return (
     <PublicLayout>
-      <div className="space-y-6">
+      <div className="space-y-3 md:space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex flex-col gap-2">
-            <h1 className="text-3xl md:text-4xl font-display font-bold">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 md:gap-4">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-xl md:text-4xl font-display font-bold">
               <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
                 Stock Dashboard
               </span>
             </h1>
-            <p className="text-muted-foreground">
+            <p className="text-xs md:text-base text-muted-foreground">
               Real-time inventory and sales overview
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 md:gap-3">
+            <div className="flex items-center gap-1 md:gap-2 text-[11px] md:text-sm text-muted-foreground">
               <Calendar className="h-4 w-4" />
               <span>{currentDate}</span>
             </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Clock className="h-4 w-4" />
+            <div className="flex items-center gap-1 md:gap-2 text-[11px] md:text-sm text-muted-foreground">
+              <Clock className="h-3 w-3 md:h-4 md:w-4" />
               <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           </div>
         </div>
 
         {/* Quick Stats Bar */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <GlassCard className="p-4 hover:shadow-lg transition-shadow">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
+          <GlassCard className="!p-2.5 md:!p-4 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Daily Avg Units</p>
-                <p className="text-2xl font-bold mt-1">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] md:text-sm text-muted-foreground truncate">Daily Avg Units</p>
+                <p className="text-lg md:text-2xl font-bold mt-0.5">
                   {(dailyTrends.reduce((sum, day) => sum + day.units, 0) / 7).toFixed(1)}
                 </p>
               </div>
-              <div className="p-3 rounded-full bg-green-500/10">
-                <TrendingUp className="h-6 w-6 text-green-500" />
+              <div className="p-2 md:p-3 rounded-full bg-green-500/10 flex-shrink-0">
+                <TrendingUp className="h-4 w-4 md:h-6 md:w-6 text-green-500" />
               </div>
             </div>
           </GlassCard>
           
-          <GlassCard className="p-4 hover:shadow-lg transition-shadow">
+          <GlassCard className="!p-2.5 md:!p-4 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Active Sales Today</p>
-                <p className="text-2xl font-bold mt-1">{stats.soldToday}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] md:text-sm text-muted-foreground truncate">Active Sales Today</p>
+                <p className="text-lg md:text-2xl font-bold mt-0.5">{stats.soldToday}</p>
               </div>
-              <div className="p-3 rounded-full bg-blue-500/10">
-                <Clock className="h-6 w-6 text-blue-500" />
+              <div className="p-2 md:p-3 rounded-full bg-blue-500/10 flex-shrink-0">
+                <Clock className="h-4 w-4 md:h-6 md:w-6 text-blue-500" />
               </div>
             </div>
           </GlassCard>
           
-          <GlassCard className="p-4 hover:shadow-lg transition-shadow">
+          <GlassCard className="!p-2.5 md:!p-4 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Stock Turnover</p>
-                <p className="text-2xl font-bold mt-1">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] md:text-sm text-muted-foreground truncate">Stock Turnover</p>
+                <p className="text-lg md:text-2xl font-bold mt-0.5">
                   {stats.tlAssignedStock > 0 ? 
                     `${Math.round((stats.tlSoldStock / stats.tlAssignedStock) * 100)}%` : '0%'}
                 </p>
               </div>
-              <div className="p-3 rounded-full bg-purple-500/10">
-                <BarChart3 className="h-6 w-6 text-purple-500" />
+              <div className="p-2 md:p-3 rounded-full bg-purple-500/10 flex-shrink-0">
+                <BarChart3 className="h-4 w-4 md:h-6 md:w-6 text-purple-500" />
               </div>
             </div>
           </GlassCard>
           
-          <GlassCard className="p-4 hover:shadow-lg transition-shadow">
+          <GlassCard className="!p-2.5 md:!p-4 hover:shadow-lg transition-shadow">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Pending Units</p>
-                <p className="text-2xl font-bold mt-1">{stats.unpaidCount}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] md:text-sm text-muted-foreground truncate">Pending Units</p>
+                <p className="text-lg md:text-2xl font-bold mt-0.5">{stats.unpaidCount}</p>
               </div>
-              <div className="p-3 rounded-full bg-orange-500/10">
-                <AlertTriangle className="h-6 w-6 text-orange-500" />
+              <div className="p-2 md:p-3 rounded-full bg-orange-500/10 flex-shrink-0">
+                <AlertTriangle className="h-4 w-4 md:h-6 md:w-6 text-orange-500" />
               </div>
             </div>
           </GlassCard>
         </div>
 
-        {/* Main Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
           <StatsCard 
             title="Total Inventory" 
             value={stats.totalStock.toLocaleString()} 
@@ -494,8 +493,7 @@ export default function PublicDashboard() {
           />
         </div>
 
-        {/* Charts and Recent Activity */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-6">
           {/* Sales Trend Chart */}
           <GlassCard className="lg:col-span-2 hover:shadow-lg transition-shadow">
             <div className="flex justify-between items-center mb-4">
@@ -690,8 +688,7 @@ export default function PublicDashboard() {
           )}
         </GlassCard>
 
-        {/* Stock Overview */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-6">
           {/* Overall Stock Utilization */}
           <GlassCard className="hover:shadow-lg transition-shadow">
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -699,9 +696,9 @@ export default function PublicDashboard() {
               Stock Distribution
             </h3>
             <div className="space-y-6">
-              <div className="text-center py-4">
-                <div className="text-4xl font-bold">{stockUtilization}%</div>
-                <p className="text-muted-foreground mt-2">of total inventory utilized</p>
+              <div className="text-center py-2 md:py-4">
+                <div className="text-2xl md:text-4xl font-bold">{stockUtilization}%</div>
+                <p className="text-xs md:text-base text-muted-foreground mt-1 md:mt-2">of total inventory utilized</p>
                 <div className="mt-6 space-y-4">
                   {[
                     { label: 'Total Stock', value: stats.totalStock, color: 'bg-gray-500', percentage: 100 },

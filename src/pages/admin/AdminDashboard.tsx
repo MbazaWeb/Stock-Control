@@ -587,16 +587,16 @@ export default function AdminDashboard() {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 md:gap-4">
           <div>
-            <h1 className="text-3xl font-display font-bold">
+            <h1 className="text-xl md:text-3xl font-display font-bold">
               <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
                 Admin Dashboard
               </span>
             </h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-xs md:text-base text-muted-foreground mt-0.5">
               Real-time insights and management overview
             </p>
           </div>
@@ -624,31 +624,30 @@ export default function AdminDashboard() {
         </div>
 
         {/* Quick Stats Bar */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
           {quickStats.map((stat, index) => (
-            <GlassCard key={index} className="p-4 hover:shadow-lg transition-shadow">
+            <GlassCard key={index} className="!p-3 md:!p-4 hover:shadow-lg transition-shadow">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <p className="text-2xl font-bold mt-1">{stat.value}</p>
-                  <div className="flex items-center gap-1 mt-1">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] md:text-sm text-muted-foreground truncate">{stat.label}</p>
+                  <p className="text-lg md:text-2xl font-bold mt-0.5 md:mt-1">{stat.value}</p>
+                  <div className="flex items-center gap-1 mt-0.5 md:mt-1">
                     <TrendingUp className={`h-3 w-3 ${stat.change >= 0 ? 'text-green-500' : 'text-red-500'}`} />
-                    <span className={`text-xs ${stat.change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    <span className={`text-[10px] md:text-xs ${stat.change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                       {stat.change >= 0 ? '+' : ''}{stat.change}%
                     </span>
-                    <span className="text-xs text-muted-foreground ml-1">vs last period</span>
+                    <span className="text-[10px] md:text-xs text-muted-foreground ml-0.5 hidden sm:inline">vs last period</span>
                   </div>
                 </div>
-                <div className={`p-3 rounded-full ${stat.color.replace('text-', 'bg-')}/10`}>
-                  <stat.icon className={`h-6 w-6 ${stat.color}`} />
+                <div className={`p-2 md:p-3 rounded-full ${stat.color.replace('text-', 'bg-')}/10 flex-shrink-0`}>
+                  <stat.icon className={`h-4 w-4 md:h-6 md:w-6 ${stat.color}`} />
                 </div>
               </div>
             </GlassCard>
           ))}
         </div>
 
-        {/* Main Stats Grid - Units Only */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 md:gap-4">
           <StatsCard
             title="Total Inventory"
             value={stats.totalStock.toLocaleString()}
@@ -688,8 +687,7 @@ export default function AdminDashboard() {
           />
         </div>
 
-        {/* Secondary Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-2 md:gap-4">
           <StatsCard
             title="Team Leaders"
             value={stats.teamLeaders.toString()}
@@ -727,8 +725,7 @@ export default function AdminDashboard() {
           />
         </div>
 
-        {/* Charts and Quick Actions */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-6">
           {/* Sales Chart - Units Only */}
           <GlassCard className="lg:col-span-2 hover:shadow-lg transition-shadow">
             <div className="flex justify-between items-center mb-4">
@@ -804,22 +801,22 @@ export default function AdminDashboard() {
                 <TrendingUp className="h-5 w-5 text-secondary" />
                 Quick Actions
               </h3>
-              <div className="grid grid-cols-2 gap-4">
-                <a href="/admin/inventory" className="glass-button text-center p-4 hover:shadow-blue transition-all group">
-                  <Package className="h-8 w-8 mx-auto text-primary mb-2 group-hover:scale-110 transition-transform" />
-                  <span className="font-medium">Add Stock</span>
+              <div className="grid grid-cols-2 gap-2 md:gap-4">
+                <a href="/admin/inventory" className="glass-button text-center p-2 md:p-4 hover:shadow-blue transition-all group">
+                  <Package className="h-6 w-6 md:h-8 md:w-8 mx-auto text-primary mb-1 md:mb-2 group-hover:scale-110 transition-transform" />
+                  <span className="font-medium text-xs md:text-base">Add Stock</span>
                 </a>
-                <a href="/admin/assign-stock" className="glass-button text-center p-4 hover:shadow-gold transition-all group">
-                  <Users className="h-8 w-8 mx-auto text-secondary mb-2 group-hover:scale-110 transition-transform" />
-                  <span className="font-medium">Assign Stock</span>
+                <a href="/admin/assign-stock" className="glass-button text-center p-2 md:p-4 hover:shadow-gold transition-all group">
+                  <Users className="h-6 w-6 md:h-8 md:w-8 mx-auto text-secondary mb-1 md:mb-2 group-hover:scale-110 transition-transform" />
+                  <span className="font-medium text-xs md:text-base">Assign Stock</span>
                 </a>
-                <a href="/admin/sales-team" className="glass-button text-center p-4 hover:shadow-blue transition-all group">
-                  <Users className="h-8 w-8 mx-auto text-primary mb-2 group-hover:scale-110 transition-transform" />
-                  <span className="font-medium">Manage Team</span>
+                <a href="/admin/sales-team" className="glass-button text-center p-2 md:p-4 hover:shadow-blue transition-all group">
+                  <Users className="h-6 w-6 md:h-8 md:w-8 mx-auto text-primary mb-1 md:mb-2 group-hover:scale-110 transition-transform" />
+                  <span className="font-medium text-xs md:text-base">Manage Team</span>
                 </a>
-                <a href="/admin/sales" className="glass-button text-center p-4 hover:shadow-gold transition-all group">
-                  <BarChart3 className="h-8 w-8 mx-auto text-secondary mb-2 group-hover:scale-110 transition-transform" />
-                  <span className="font-medium">View Sales</span>
+                <a href="/admin/sales" className="glass-button text-center p-2 md:p-4 hover:shadow-gold transition-all group">
+                  <BarChart3 className="h-6 w-6 md:h-8 md:w-8 mx-auto text-secondary mb-1 md:mb-2 group-hover:scale-110 transition-transform" />
+                  <span className="font-medium text-xs md:text-base">View Sales</span>
                 </a>
               </div>
             </GlassCard>
@@ -940,9 +937,9 @@ export default function AdminDashboard() {
         )}
 
         {/* Stock Overview & Recent Alerts */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-6">
           <GlassCard className="hover:shadow-lg transition-shadow">
-            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 flex items-center gap-2">
               <Package className="h-5 w-5 text-secondary" />
               Stock Distribution Analysis
             </h3>

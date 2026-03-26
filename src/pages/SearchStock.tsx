@@ -14,7 +14,9 @@ import {
   CreditCard,
   Box,
   Filter,
-  Download
+  Download,
+  Warehouse,
+  HandCoins
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import PublicLayout from '@/components/layout/PublicLayout';
@@ -427,19 +429,54 @@ export default function SearchStock() {
     switch (status) {
       case 'available':
         return <Badge className="bg-green-500/20 text-green-500 border-green-500/30">
-          <CheckCircle2 className="h-3 w-3 mr-1" /> Available
+          <Warehouse className="h-3 w-3 mr-1" /> In Warehouse
         </Badge>;
       case 'assigned':
-        return <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30">
-          <Users className="h-3 w-3 mr-1" /> Assigned
+        return <Badge className="bg-orange-500/20 text-orange-600 border-orange-500/30 font-semibold">
+          <HandCoins className="h-3 w-3 mr-1" /> In-hand
         </Badge>;
       case 'sold':
-        return <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30">
+        return <Badge className="bg-red-500/20 text-red-500 border-red-500/30 font-semibold">
           <CreditCard className="h-3 w-3 mr-1" /> Sold
         </Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
+  };
+
+  const getStockStatusBanner = (item: SearchResult) => {
+    if (item.status === 'sold' || item.source === 'sale') {
+      return (
+        <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-red-500/10 border border-red-500/20">
+          <CreditCard className="h-5 w-5 text-red-500" />
+          <span className="text-sm font-bold text-red-500">SOLD</span>
+          {item.sale_date && (
+            <span className="text-xs text-red-400 ml-auto">
+              {new Date(item.sale_date).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+      );
+    }
+    if (item.status === 'assigned') {
+      return (
+        <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-orange-500/10 border border-orange-500/20">
+          <HandCoins className="h-5 w-5 text-orange-500" />
+          <span className="text-sm font-bold text-orange-600">IN-HAND</span>
+          {item.assigned_to_name && (
+            <span className="text-xs text-orange-400 ml-auto">
+              Held by: {item.assigned_to_name}
+            </span>
+          )}
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 mb-3 rounded-lg bg-green-500/10 border border-green-500/20">
+        <Warehouse className="h-5 w-5 text-green-500" />
+        <span className="text-sm font-bold text-green-500">IN WAREHOUSE</span>
+      </div>
+    );
   };
 
   const getPaymentBadge = (status: string) => {
@@ -492,17 +529,17 @@ export default function SearchStock() {
 
   return (
     <PublicLayout>
-      <div className="space-y-6">
+      <div className="space-y-3 md:space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex flex-col gap-2">
-            <h1 className="text-3xl md:text-4xl font-display font-bold">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 md:gap-4">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-xl md:text-4xl font-display font-bold">
               <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
                 Search Stock & Sales
               </span>
             </h1>
-            <p className="text-muted-foreground">
-              Find inventory and sales records with detailed information
+            <p className="text-xs md:text-base text-muted-foreground">
+              Find inventory and sales records
             </p>
           </div>
           {filteredResults.length > 0 && (
@@ -721,6 +758,9 @@ export default function SearchStock() {
               <div className="grid gap-4">
                 {filteredResults.map((item) => (
                   <GlassCard key={`${item.source}-${item.id}`} className="hover:shadow-lg transition-shadow">
+                    {/* Stock Status Banner */}
+                    {getStockStatusBanner(item)}
+
                     {/* Card Header */}
                     <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-4">
                       <div className="flex-1">
