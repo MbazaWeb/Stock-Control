@@ -463,6 +463,44 @@ export default function InventoryPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const downloadTemplate = async () => {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'StockFlow';
+    const ws = wb.addWorksheet('Stock Template');
+
+    ws.columns = [
+      { header: 'Smartcard Number', key: 'smartcard_number', width: 22 },
+      { header: 'Serial Number', key: 'serial_number', width: 22 },
+      { header: 'Stock Type', key: 'stock_type', width: 18 },
+    ];
+
+    // Style header row
+    const headerRow = ws.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+    headerRow.alignment = { horizontal: 'center' };
+
+    // Add sample rows
+    ws.addRow({ smartcard_number: '100123456', serial_number: 'SN00123456', stock_type: 'Full Set' });
+    ws.addRow({ smartcard_number: '100789012', serial_number: 'SN00789012', stock_type: 'Decoder Only' });
+    ws.addRow({ smartcard_number: '100345678', serial_number: 'SN00345678', stock_type: 'Full Set' });
+
+    // Style sample rows as light gray italic to indicate they're examples
+    for (let r = 2; r <= 4; r++) {
+      const row = ws.getRow(r);
+      row.font = { italic: true, color: { argb: 'FF999999' } };
+    }
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'stock_upload_template.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const removeExcelRow = (idx: number) => {
     setExcelPreview((prev) => prev.filter((_, i) => i !== idx));
   };
@@ -627,6 +665,13 @@ export default function InventoryPage() {
               onClick={() => fileInputRef.current?.click()}
             >
               <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel Import
+            </Button>
+            <Button
+              variant="outline"
+              className="glass-button"
+              onClick={downloadTemplate}
+            >
+              <Download className="w-4 h-4 mr-2" /> Template
             </Button>
             <input
               type="file"
