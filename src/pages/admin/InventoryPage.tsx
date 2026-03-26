@@ -18,9 +18,11 @@ import {
   User,
   UserPlus,
   Shield,
+  ScanLine,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import AdminLayout from '@/components/layout/AdminLayout';
+import ScannerDialog from '@/components/ScannerDialog';
 import GlassCard from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -140,6 +142,8 @@ export default function InventoryPage() {
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [excelDialogOpen, setExcelDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [scanField, setScanField] = useState<'smartcard' | 'serial'>('smartcard');
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   // State
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
@@ -960,13 +964,18 @@ export default function InventoryPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Smartcard Number *</Label>
+                  <div className="flex gap-2">
                   <Input
                     value={formData.smartcard_number}
                     onChange={(e) => setFormData({ ...formData, smartcard_number: e.target.value })}
-                    className="glass-input"
+                    className="glass-input flex-1"
                     placeholder="8212345678"
                     maxLength={10}
                   />
+                  <Button type="button" variant="outline" size="icon" onClick={() => { setScanField('smartcard'); setScannerOpen(true); }} title="Scan with camera">
+                    <ScanLine className="h-4 w-4" />
+                  </Button>
+                  </div>
                   <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                     <AlertCircle className="h-3 w-3" />
                     {formatSmartcardHint()}
@@ -974,13 +983,18 @@ export default function InventoryPage() {
                 </div>
                 <div>
                   <Label>Serial Number *</Label>
+                  <div className="flex gap-2">
                   <Input
                     value={formData.serial_number}
                     onChange={(e) => setFormData({ ...formData, serial_number: e.target.value.toUpperCase() })}
-                    className="glass-input"
+                    className="glass-input flex-1"
                     placeholder="S07512345678"
                     maxLength={12}
                   />
+                  <Button type="button" variant="outline" size="icon" onClick={() => { setScanField('serial'); setScannerOpen(true); }} title="Scan with camera">
+                    <ScanLine className="h-4 w-4" />
+                  </Button>
+                  </div>
                   <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                     <AlertCircle className="h-3 w-3" />
                     {formatSerialHint()}
@@ -1207,6 +1221,20 @@ export default function InventoryPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <ScannerDialog
+          open={scannerOpen}
+          onOpenChange={setScannerOpen}
+          onScanResult={(text) => {
+            if (scanField === 'smartcard') {
+              setFormData((prev) => ({ ...prev, smartcard_number: text }));
+            } else {
+              setFormData((prev) => ({ ...prev, serial_number: text.toUpperCase() }));
+            }
+          }}
+          title={scanField === 'smartcard' ? 'Scan Smartcard Number' : 'Scan Serial Number'}
+          hint={scanField === 'smartcard' ? 'Point camera at the smartcard number' : 'Point camera at the serial number'}
+        />
       </div>
     </AdminLayout>
   );

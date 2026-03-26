@@ -18,7 +18,8 @@ import {
   Download,
   Warehouse,
   HandCoins,
-  ShoppingCart
+  ShoppingCart,
+  ScanLine
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import PublicLayout from '@/components/layout/PublicLayout';
@@ -35,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import ExcelJS from 'exceljs';
+import ScannerDialog from '@/components/ScannerDialog';
 
 interface SearchResult {
   id: string;
@@ -86,6 +88,7 @@ export default function SearchStock() {
   });
   const [zones, setZones] = useState<Array<{id: string, name: string}>>([]);
   const [regions, setRegions] = useState<Array<{id: string, name: string}>>([]);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const loadZonesAndRegions = async () => {
     try {
@@ -636,6 +639,17 @@ export default function SearchStock() {
                   className="pl-10 input-glass h-12"
                 />
               </div>
+              {searchType !== 'person' && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-12 px-4"
+                  onClick={() => setScannerOpen(true)}
+                  title="Scan with camera"
+                >
+                  <ScanLine className="h-5 w-5" />
+                </Button>
+              )}
               <Button type="submit" className="btn-primary-gradient h-12 px-8" disabled={isLoading}>
                 {isLoading ? (
                   <>
@@ -652,6 +666,14 @@ export default function SearchStock() {
             </div>
           </form>
         </GlassCard>
+
+        <ScannerDialog
+          open={scannerOpen}
+          onOpenChange={setScannerOpen}
+          onScanResult={(text) => setSearchQuery(text)}
+          title={searchType === 'smartcard' ? 'Scan Smartcard Number' : 'Scan Serial Number'}
+          hint={searchType === 'smartcard' ? 'Point camera at the smartcard number' : 'Point camera at the serial number'}
+        />
 
         {/* Filters */}
         {hasSearched && results.length > 0 && (
