@@ -117,6 +117,21 @@ interface RegionSummary {
   inhand: number;
 }
 
+interface UploadInventoryItem {
+  smartcard_number: string;
+  serial_number: string;
+  stock_type: string;
+  zone_id: string | null;
+  region_id: string | null;
+}
+
+interface PreparedUploadResult<T extends UploadInventoryItem> {
+  itemsToInsert: T[];
+  skippedExisting: number;
+  skippedDuplicateUploads: number;
+  adjustedSerials: number;
+}
+
 export default function InventoryPage() {
   const { toast } = useToast();
   const { isSuperAdmin, isRegionalAdmin, assignedRegionIds } = useAuth();
@@ -335,6 +350,126 @@ export default function InventoryPage() {
     });
   };
 
+  const getGeneratedSerialCandidates = (smartcard: string) => {
+    const suffix = smartcard.slice(-8);
+
+    return [
+      `S076${suffix}`,
+      `S075${suffix}`,
+      `S076${suffix.slice(0, 7)}X`,
+      `S075${suffix.slice(0, 7)}X`,
+      `S076${suffix.slice(0, 6)}XX`,
+      `S075${suffix.slice(0, 6)}XX`,
+      `S076${suffix.slice(0, 5)}XXX`,
+      `S075${suffix.slice(0, 5)}XXX`,
+    ];
+  };
+
+  const filterNewUploadItems = async <T extends UploadInventoryItem>(items: T[]): Promise<PreparedUploadResult<T>> => {
+    const seenSmartcards = new Set<string>();
+    const uniqueItems: T[] = [];
+    let skippedDuplicateUploads = 0;
+
+    items.forEach((item) => {
+      const smartcard = item.smartcard_number.trim();
+      if (!smartcard || seenSmartcards.has(smartcard)) {
+        skippedDuplicateUploads += 1;
+        return;
+      }
+
+      seenSmartcards.add(smartcard);
+      uniqueItems.push({
+        ...item,
+        smartcard_number: smartcard,
+      });
+    });
+
+    if (uniqueItems.length === 0) {
+      return {
+        itemsToInsert: [] as T[],
+        skippedExisting: 0,
+        skippedDuplicateUploads,
+        adjustedSerials: 0,
+      };
+    }
+
+    const existingSmartcardResponse = await supabase
+      .from('inventory')
+      .select('smartcard_number')
+      .in('smartcard_number', uniqueItems.map((item) => item.smartcard_number));
+
+    if (existingSmartcardResponse.error) {
+      throw existingSmartcardResponse.error;
+    }
+
+    const existingSmartcards = new Set((existingSmartcardResponse.data || []).map((item) => item.smartcard_number));
+    const candidateItems = uniqueItems.filter((item) => !existingSmartcards.has(item.smartcard_number));
+
+    if (candidateItems.length === 0) {
+      return {
+        itemsToInsert: [] as T[],
+        skippedExisting: uniqueItems.length,
+        skippedDuplicateUploads,
+        adjustedSerials: 0,
+      };
+    }
+
+    const serialCandidates = new Set<string>();
+    candidateItems.forEach((item) => {
+      const serial = item.serial_number.trim().toUpperCase();
+      if (serial) {
+        serialCandidates.add(serial);
+      }
+
+      getGeneratedSerialCandidates(item.smartcard_number).forEach((candidate) => {
+        serialCandidates.add(candidate);
+      });
+    });
+
+    const existingSerialResponse = await supabase
+      .from('inventory')
+      .select('serial_number')
+      .in('serial_number', Array.from(serialCandidates));
+
+    if (existingSerialResponse.error) {
+      throw existingSerialResponse.error;
+    }
+
+    const usedSerials = new Set((existingSerialResponse.data || []).map((item) => item.serial_number));
+    const itemsToInsert: T[] = [];
+    let adjustedSerials = 0;
+
+    candidateItems.forEach((item) => {
+      const normalizedSerial = item.serial_number.trim().toUpperCase();
+      let nextSerial = normalizedSerial;
+
+      if (!nextSerial || usedSerials.has(nextSerial)) {
+        nextSerial = getGeneratedSerialCandidates(item.smartcard_number).find((candidate) => !usedSerials.has(candidate)) || '';
+      }
+
+      if (!nextSerial) {
+        throw new Error(`Unable to generate a unique serial number for smartcard ${item.smartcard_number}.`);
+      }
+
+      if (nextSerial !== normalizedSerial) {
+        adjustedSerials += 1;
+      }
+
+      usedSerials.add(nextSerial);
+      itemsToInsert.push({
+        ...item,
+        serial_number: nextSerial,
+      });
+    });
+
+    return {
+      itemsToInsert,
+      skippedExisting: uniqueItems.length - candidateItems.length,
+      skippedDuplicateUploads,
+      adjustedSerials,
+    };
+  };
+
   const handleSubmit = async () => {
     // Validate smartcard
     const scValidation = validateSmartcard(formData.smartcard_number);
@@ -389,28 +524,60 @@ export default function InventoryPage() {
         const [sc, sn, type] = line.split(',').map((s) => s.trim());
         return {
           smartcard_number: sc,
-          serial_number: sn,
+          serial_number: sn || '',
           stock_type: type || 'Full Set',
           zone_id: formData.zone_id || null,
           region_id: formData.region_id || null,
         };
       })
-      .filter((item) => item.smartcard_number && item.serial_number);
+      .filter((item) => item.smartcard_number);
 
     if (items.length === 0) {
       toast({ title: 'No valid items', description: 'Please enter valid data.', variant: 'destructive' });
       return;
     }
 
-    const { error } = await supabase.from('inventory').insert(items);
-    if (!error) {
-      toast({ title: 'Success', description: `${items.length} items added.` });
+    try {
+      const { itemsToInsert, skippedExisting, skippedDuplicateUploads, adjustedSerials } = await filterNewUploadItems(items);
+
+      if (itemsToInsert.length === 0) {
+        toast({
+          title: 'No new stock added',
+          description: `Skipped ${skippedExisting + skippedDuplicateUploads} duplicate smartcard${skippedExisting + skippedDuplicateUploads === 1 ? '' : 's'}.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('inventory')
+        .upsert(itemsToInsert, {
+          onConflict: 'smartcard_number',
+          ignoreDuplicates: true,
+        })
+        .select('smartcard_number');
+      if (error) {
+        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        return;
+      }
+
+      const insertedCount = data?.length ?? 0;
+      const skippedTotal = skippedExisting + skippedDuplicateUploads + (itemsToInsert.length - insertedCount);
+      toast({
+        title: 'Success',
+        description: [
+          `${insertedCount} items added.`,
+          skippedTotal > 0 ? `${skippedTotal} duplicate smartcard${skippedTotal === 1 ? '' : 's'} skipped.` : '',
+          adjustedSerials > 0 ? `${adjustedSerials} serial number${adjustedSerials === 1 ? '' : 's'} auto-adjusted.` : '',
+        ].filter(Boolean).join(' '),
+      });
       setBulkDialogOpen(false);
       setBulkInput('');
       resetForm();
       fetchData();
-    } else {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to check existing smartcards.';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
     }
   };
 
@@ -439,9 +606,6 @@ export default function InventoryPage() {
         const scVal = validateSmartcard(sc);
         if (!sc || !scVal.valid) errors.push(scVal.message || 'Invalid smartcard');
 
-        const snVal = validateSerialNumber(sn);
-        if (!sn || !snVal.valid) errors.push(snVal.message || 'Invalid serial');
-
         return {
           smartcard_number: sc,
           serial_number: sn,
@@ -459,7 +623,64 @@ export default function InventoryPage() {
         return;
       }
 
-      setExcelPreview(parsed);
+      try {
+        const validRows = parsed.filter((row) => row.valid);
+        const { itemsToInsert, skippedExisting, skippedDuplicateUploads, adjustedSerials } = await filterNewUploadItems(
+          validRows.map((row) => ({
+            smartcard_number: row.smartcard_number,
+            serial_number: row.serial_number,
+            stock_type: row.stock_type,
+            zone_id: row.zone_id,
+            region_id: row.region_id,
+          }))
+        );
+
+        const preparedItemsBySmartcard = new Map(
+          itemsToInsert.map((item) => [item.smartcard_number, item])
+        );
+        const nextPreview = parsed
+          .filter((row) => !row.valid || preparedItemsBySmartcard.has(row.smartcard_number))
+          .map((row) => {
+            const preparedItem = preparedItemsBySmartcard.get(row.smartcard_number);
+
+            return preparedItem
+              ? {
+                  ...row,
+                  serial_number: preparedItem.serial_number,
+                }
+              : row;
+          });
+
+        if (nextPreview.length === 0) {
+          toast({
+            title: 'No new rows found',
+            description: `Skipped ${skippedExisting + skippedDuplicateUploads} duplicate smartcard${skippedExisting + skippedDuplicateUploads === 1 ? '' : 's'}.`,
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        if (skippedExisting + skippedDuplicateUploads > 0) {
+          toast({
+            title: 'Duplicates removed',
+            description: `${skippedExisting + skippedDuplicateUploads} duplicate smartcard${skippedExisting + skippedDuplicateUploads === 1 ? '' : 's'} removed from the Excel preview.`,
+          });
+        }
+
+        if (adjustedSerials > 0) {
+          toast({
+            title: 'Serials adjusted',
+            description: `${adjustedSerials} serial number${adjustedSerials === 1 ? '' : 's'} were auto-adjusted to avoid duplicates.`,
+          });
+        }
+
+        setExcelPreview(nextPreview);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to check existing smartcards.';
+        toast({ title: 'Error', description: message, variant: 'destructive' });
+        return;
+      }
+
       setExcelDialogOpen(true);
     };
     reader.readAsArrayBuffer(file);
@@ -523,14 +744,46 @@ export default function InventoryPage() {
       return;
     }
 
-    const { error } = await supabase.from('inventory').insert(items);
-    if (!error) {
-      toast({ title: 'Imported', description: `${items.length} items added from Excel.` });
+    try {
+      const { itemsToInsert, skippedExisting, skippedDuplicateUploads, adjustedSerials } = await filterNewUploadItems(items);
+
+      if (itemsToInsert.length === 0) {
+        toast({
+          title: 'No new rows imported',
+          description: `Skipped ${skippedExisting + skippedDuplicateUploads} duplicate smartcard${skippedExisting + skippedDuplicateUploads === 1 ? '' : 's'}.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('inventory')
+        .upsert(itemsToInsert, {
+          onConflict: 'smartcard_number',
+          ignoreDuplicates: true,
+        })
+        .select('smartcard_number');
+      if (error) {
+        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        return;
+      }
+
+      const insertedCount = data?.length ?? 0;
+      const skippedTotal = skippedExisting + skippedDuplicateUploads + (itemsToInsert.length - insertedCount);
+      toast({
+        title: 'Imported',
+        description: [
+          `${insertedCount} items added from Excel.`,
+          skippedTotal > 0 ? `${skippedTotal} duplicate smartcard${skippedTotal === 1 ? '' : 's'} skipped.` : '',
+          adjustedSerials > 0 ? `${adjustedSerials} serial number${adjustedSerials === 1 ? '' : 's'} auto-adjusted.` : '',
+        ].filter(Boolean).join(' '),
+      });
       setExcelDialogOpen(false);
       setExcelPreview([]);
       fetchData();
-    } else {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to check existing smartcards.';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
     }
   };
 
