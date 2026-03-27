@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Plus,
   Trash2,
@@ -145,18 +145,22 @@ export default function InventoryPage() {
   const [dsrs, setDsrs] = useState<DSR[]>([]);
   const [loading, setLoading] = useState(true);
   const [regionSummaries, setRegionSummaries] = useState<RegionSummary[]>([]);
+  const [soldInventoryIds, setSoldInventoryIds] = useState<string[]>([]);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [zoneFilter, setZoneFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
+  const [summaryZoneFilter, setSummaryZoneFilter] = useState('all');
+  const [summaryRegionFilter, setSummaryRegionFilter] = useState('all');
 
   // Dialogs
   const [dialogOpen, setDialogOpen] = useState(false);
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [excelDialogOpen, setExcelDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [assignRegionDialogOpen, setAssignRegionDialogOpen] = useState(false);
   const [scanField, setScanField] = useState<'smartcard' | 'serial'>('smartcard');
   const [scannerOpen, setScannerOpen] = useState(false);
 
@@ -185,6 +189,11 @@ export default function InventoryPage() {
     region_id: '',
   });
 
+  const [regionAssignmentData, setRegionAssignmentData] = useState({
+    zone_id: '',
+    region_id: '',
+  });
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -194,14 +203,20 @@ export default function InventoryPage() {
         invQuery = invQuery.in('region_id', assignedRegionIds);
       }
 
-      const [invRes, zoneRes, regionRes, tlRes, captainRes, dsrRes] = await Promise.all([
+      const [invRes, zoneRes, regionRes, tlRes, captainRes, dsrRes, salesRes] = await Promise.all([
         invQuery,
         supabase.from('zones').select('*').order('name'),
         supabase.from('regions').select('*').order('name'),
         supabase.from('team_leaders').select('id, name').order('name'),
         supabase.from('captains').select('id, name').order('name'),
         supabase.from('dsrs').select('id, name').order('name'),
+        supabase.from('sales_records').select('inventory_id').not('inventory_id', 'is', null),
       ]);
+
+      const linkedSoldInventoryIds = (salesRes.data || [])
+        .map((sale) => sale.inventory_id)
+        .filter((inventoryId): inventoryId is string => !!inventoryId);
+      setSoldInventoryIds(linkedSoldInventoryIds);
 
       if (invRes.data) {
         setInventory(invRes.data);
@@ -209,7 +224,7 @@ export default function InventoryPage() {
         const accessibleRegions = isRegionalAdmin && assignedRegionIds.length > 0
           ? (regionRes.data || []).filter(r => assignedRegionIds.includes(r.id))
           : regionRes.data || [];
-        calculateRegionSummaries(invRes.data, zoneRes.data || [], accessibleRegions);
+        calculateRegionSummaries(invRes.data, zoneRes.data || [], accessibleRegions, new Set(linkedSoldInventoryIds));
       }
       if (zoneRes.data) setZones(zoneRes.data);
       // For regional admins, only show their assigned regions
@@ -229,17 +244,27 @@ export default function InventoryPage() {
     }
   };
 
-  const calculateRegionSummaries = (invData: InventoryItem[], zoneData: Zone[], regionData: Region[]) => {
+  const calculateRegionSummaries = (
+    invData: InventoryItem[],
+    zoneData: Zone[],
+    regionData: Region[],
+    soldIds: Set<string>
+  ) => {
     const summaries: RegionSummary[] = [];
     
     // Create summary for each region
     regionData.forEach(region => {
       const regionItems = invData.filter(item => item.region_id === region.id);
       const total = regionItems.length;
-      const available = regionItems.filter(item => item.status === 'available').length;
-      const sold = regionItems.filter(item => item.status === 'sold').length;
-      const assigned = regionItems.filter(item => item.assigned_to_id !== null).length;
-      const inhand = available - assigned; // Inhand = available minus assigned
+      const isSold = (item: InventoryItem) => item.status === 'sold' || soldIds.has(item.id);
+      const available = regionItems.filter(
+        item => item.status === 'available' && !item.assigned_to_id && !isSold(item)
+      ).length;
+      const sold = regionItems.filter((item) => isSold(item)).length;
+      const assigned = regionItems.filter(item => item.assigned_to_id !== null && !isSold(item)).length;
+      const inhand = regionItems.filter(
+        item => item.assigned_to_type === 'team_leader' && !!item.assigned_to_id && !isSold(item)
+      ).length;
       
       const zoneName = zoneData.find(z => z.id === region.zone_id)?.name || 'Unknown Zone';
       
@@ -251,7 +276,7 @@ export default function InventoryPage() {
         available,
         sold,
         assigned,
-        inhand: Math.max(inhand, 0) // Ensure non-negative
+        inhand
       });
     });
     
@@ -259,10 +284,15 @@ export default function InventoryPage() {
     const unassignedRegionItems = invData.filter(item => !item.region_id);
     if (unassignedRegionItems.length > 0) {
       const total = unassignedRegionItems.length;
-      const available = unassignedRegionItems.filter(item => item.status === 'available').length;
-      const sold = unassignedRegionItems.filter(item => item.status === 'sold').length;
-      const assigned = unassignedRegionItems.filter(item => item.assigned_to_id !== null).length;
-      const inhand = available - assigned;
+      const isSold = (item: InventoryItem) => item.status === 'sold' || soldIds.has(item.id);
+      const available = unassignedRegionItems.filter(
+        item => item.status === 'available' && !item.assigned_to_id && !isSold(item)
+      ).length;
+      const sold = unassignedRegionItems.filter((item) => isSold(item)).length;
+      const assigned = unassignedRegionItems.filter(item => item.assigned_to_id !== null && !isSold(item)).length;
+      const inhand = unassignedRegionItems.filter(
+        item => item.assigned_to_type === 'team_leader' && !!item.assigned_to_id && !isSold(item)
+      ).length;
       
       summaries.push({
         region_id: 'unassigned',
@@ -272,7 +302,7 @@ export default function InventoryPage() {
         available,
         sold,
         assigned,
-        inhand: Math.max(inhand, 0)
+        inhand
       });
     }
     
@@ -349,6 +379,24 @@ export default function InventoryPage() {
       region_id: '',
     });
   };
+
+  const soldInventoryIdSet = useMemo(() => new Set(soldInventoryIds), [soldInventoryIds]);
+
+  const isInventorySold = (item: InventoryItem) => item.status === 'sold' || soldInventoryIdSet.has(item.id);
+
+  const isInventoryInHand = (item: InventoryItem) =>
+    item.assigned_to_type === 'team_leader' && !!item.assigned_to_id && !isInventorySold(item);
+
+  const isInventoryAvailable = (item: InventoryItem) =>
+    item.status === 'available' && !item.assigned_to_id && !isInventorySold(item);
+
+  const isInventoryAssigned = (item: InventoryItem) => !!item.assigned_to_id && !isInventorySold(item) && !isInventoryInHand(item);
+
+  const matchesZoneSelection = (zoneId: string | null, selectedZone: string) =>
+    selectedZone === 'all' || zoneId === selectedZone;
+
+  const matchesRegionSelection = (regionId: string | null, selectedRegion: string) =>
+    selectedRegion === 'all' || (selectedRegion === 'unassigned' ? !regionId : regionId === selectedRegion);
 
   const getGeneratedSerialCandidates = (smartcard: string) => {
     const suffix = smartcard.slice(-8);
@@ -812,6 +860,42 @@ export default function InventoryPage() {
     }
   };
 
+  const handleAssignRegion = async () => {
+    if (selectedItems.length === 0) {
+      toast({ title: 'No stock selected', description: 'Select at least one stock item first.', variant: 'destructive' });
+      return;
+    }
+
+    if (!regionAssignmentData.region_id) {
+      toast({ title: 'Region required', description: 'Select a region to assign the selected stock.', variant: 'destructive' });
+      return;
+    }
+
+    const selectedRegion = regions.find((region) => region.id === regionAssignmentData.region_id);
+    const zoneId = regionAssignmentData.zone_id || selectedRegion?.zone_id || null;
+
+    const { error } = await supabase
+      .from('inventory')
+      .update({
+        zone_id: zoneId,
+        region_id: regionAssignmentData.region_id,
+      })
+      .in('id', selectedItems);
+
+    if (!error) {
+      toast({
+        title: 'Region assigned',
+        description: `${selectedItems.length} stock item${selectedItems.length === 1 ? '' : 's'} assigned to ${selectedRegion?.name || 'the selected region'}.`,
+      });
+      setAssignRegionDialogOpen(false);
+      setRegionAssignmentData({ zone_id: '', region_id: '' });
+      setSelectedItems([]);
+      fetchData();
+    } else {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
+
   const handleEditClick = (item: InventoryItem) => {
     setEditingItem(item);
     setFormData({
@@ -830,7 +914,13 @@ export default function InventoryPage() {
       'Smartcard Number': item.smartcard_number,
       'Serial Number': item.serial_number,
       'Stock Type': item.stock_type,
-      Status: item.status,
+      Status: isInventorySold(item)
+        ? 'sold'
+        : isInventoryInHand(item)
+          ? 'inhand'
+          : isInventoryAssigned(item)
+            ? 'assigned'
+            : 'available',
       'Payment Status': item.payment_status,
       'Package Status': item.package_status,
       Zone: zones.find((z) => z.id === item.zone_id)?.name || '',
@@ -860,15 +950,47 @@ export default function InventoryPage() {
     const matchesSearch =
       i.smartcard_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
       i.serial_number.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || i.status === statusFilter;
-    const matchesZone = zoneFilter === 'all' || i.zone_id === zoneFilter;
-    const matchesRegion = regionFilter === 'all' || i.region_id === regionFilter;
+    const isSold = isInventorySold(i);
+    const isInhand = isInventoryInHand(i);
+    const isAvailable = isInventoryAvailable(i);
+    const isAssigned = isInventoryAssigned(i);
+    const matchesStatus =
+      statusFilter === 'all' ||
+      (statusFilter === 'inhand'
+        ? isInhand
+        : statusFilter === 'available'
+          ? isAvailable
+          : statusFilter === 'assigned'
+            ? isAssigned
+            : statusFilter === 'sold'
+              ? isSold
+              : i.status === statusFilter);
+    const matchesZone = matchesZoneSelection(i.zone_id, zoneFilter);
+    const matchesRegion = matchesRegionSelection(i.region_id, regionFilter);
     return matchesSearch && matchesStatus && matchesZone && matchesRegion;
   });
 
   const filteredRegions = formData.zone_id
     ? regions.filter((r) => r.zone_id === formData.zone_id)
     : regions;
+
+  const filteredAssignmentRegions = regionAssignmentData.zone_id
+    ? regions.filter((region) => region.zone_id === regionAssignmentData.zone_id)
+    : regions;
+
+  const filteredSummaryRegions = summaryZoneFilter === 'all'
+    ? regions
+    : regions.filter((r) => r.zone_id === summaryZoneFilter);
+
+  const filteredRegionSummaries = regionSummaries.filter((summary) => {
+    const summaryRegion = regions.find((region) => region.id === summary.region_id);
+    const matchesZone =
+      summaryZoneFilter === 'all' ||
+      (summary.region_id !== 'unassigned' && summaryRegion?.zone_id === summaryZoneFilter);
+    const matchesRegion = matchesRegionSelection(summary.region_id === 'unassigned' ? null : summary.region_id, summaryRegionFilter);
+
+    return matchesZone && matchesRegion;
+  });
 
   // Filter regions for the dropdown based on selected zone
   const filteredRegionsForFilter = zoneFilter === 'all' 
@@ -894,10 +1016,10 @@ export default function InventoryPage() {
   // Overall statistics
   const stats = {
     total: inventory.length,
-    available: inventory.filter((i) => i.status === 'available').length,
-    sold: inventory.filter((i) => i.status === 'sold').length,
-    assigned: inventory.filter((i) => i.assigned_to_id).length,
-    inhand: inventory.filter((i) => i.status === 'available').length - inventory.filter((i) => i.assigned_to_id).length,
+    available: inventory.filter(isInventoryAvailable).length,
+    sold: inventory.filter(isInventorySold).length,
+    assigned: inventory.filter((i) => !!i.assigned_to_id && !isInventorySold(i)).length,
+    inhand: inventory.filter(isInventoryInHand).length,
   };
 
   return (
@@ -986,9 +1108,43 @@ export default function InventoryPage() {
         {/* Region Summary Cards */}
         {regionSummaries.length > 0 && (
           <div>
-            <h3 className="text-lg font-semibold mb-4">Region-wise Summary</h3>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+              <h3 className="text-lg font-semibold">Region-wise Summary</h3>
+              <div className="flex flex-wrap gap-3">
+                <Select value={summaryZoneFilter} onValueChange={(value) => {
+                  setSummaryZoneFilter(value);
+                  setSummaryRegionFilter('all');
+                }}>
+                  <SelectTrigger className="w-[150px] glass-input">
+                    <SelectValue placeholder="Zone" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Zones</SelectItem>
+                    {zones.map((z) => (
+                      <SelectItem key={z.id} value={z.id}>
+                        {z.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={summaryRegionFilter} onValueChange={setSummaryRegionFilter}>
+                  <SelectTrigger className="w-[170px] glass-input">
+                    <SelectValue placeholder="Region" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Regions</SelectItem>
+                    {filteredSummaryRegions.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {regionSummaries.map((summary) => (
+              {filteredRegionSummaries.map((summary) => (
                 <GlassCard key={summary.region_id} className="p-4">
                   <div className="flex justify-between items-start mb-3">
                     <div>
@@ -1046,6 +1202,11 @@ export default function InventoryPage() {
                 </GlassCard>
               ))}
             </div>
+            {filteredRegionSummaries.length === 0 && (
+              <GlassCard>
+                <p className="text-sm text-muted-foreground text-center">No region summaries match the selected filters.</p>
+              </GlassCard>
+            )}
           </div>
         )}
 
@@ -1106,9 +1267,14 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
             {selectedItems.length > 0 && (
-              <Button variant="destructive" size="sm" onClick={handleBulkDelete}>
-                <Trash2 className="w-4 h-4 mr-2" /> Delete ({selectedItems.length})
-              </Button>
+              <>
+                <Button variant="outline" size="sm" onClick={() => setAssignRegionDialogOpen(true)}>
+                  <MapPin className="w-4 h-4 mr-2" /> Assign Region ({selectedItems.length})
+                </Button>
+                <Button variant="destructive" size="sm" onClick={handleBulkDelete}>
+                  <Trash2 className="w-4 h-4 mr-2" /> Delete ({selectedItems.length})
+                </Button>
+              </>
             )}
           </div>
         </GlassCard>
@@ -1148,8 +1314,9 @@ export default function InventoryPage() {
                   const assignedBadgeColor = getAssignedBadgeColor(item.assigned_to_type);
                   const assignedRoleName = getAssignedRoleName(item.assigned_to_type);
                   
-                  // Determine if item is "In-hand" (available but not assigned)
-                  const isInhand = item.status === 'available' && !item.assigned_to_id;
+                  const isSold = isInventorySold(item);
+                  const isInhand = isInventoryInHand(item);
+                  const isAssigned = isInventoryAssigned(item);
                   
                   return (
                     <TableRow key={item.id} className="border-border/30 hover:bg-primary/5">
@@ -1182,7 +1349,7 @@ export default function InventoryPage() {
                         <div className="space-y-2">
                           {/* Main Status Badge */}
                           <div>
-                            {item.status === 'sold' ? (
+                            {isSold ? (
                               <Badge className="bg-red-500/20 text-red-500 border-red-500/30">
                                 <X className="h-3 w-3 mr-1" />
                                 Sold
@@ -1191,6 +1358,11 @@ export default function InventoryPage() {
                               <Badge className="bg-amber-500/20 text-amber-500 border-amber-500/30">
                                 <ShoppingCart className="h-3 w-3 mr-1" />
                                 In-hand
+                              </Badge>
+                            ) : isAssigned ? (
+                              <Badge className="bg-blue-500/20 text-blue-500 border-blue-500/30">
+                                <Users className="h-3 w-3 mr-1" />
+                                Assigned
                               </Badge>
                             ) : (
                               <Badge className="bg-green-500/20 text-green-500 border-green-500/30">
@@ -1221,7 +1393,7 @@ export default function InventoryPage() {
                           )}
                           
                           {/* No Assignment Status */}
-                          {!item.assigned_to_id && !item.region_id && item.status === 'available' && (
+                          {!item.assigned_to_id && !item.region_id && isInventoryAvailable(item) && (
                             <Badge variant="outline" className="text-xs">
                               Unassigned
                             </Badge>
@@ -1520,6 +1692,65 @@ export default function InventoryPage() {
               </Button>
               <Button variant="destructive" onClick={handleDelete}>
                 Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={assignRegionDialogOpen} onOpenChange={setAssignRegionDialogOpen}>
+          <DialogContent className="glass-card border-border/50">
+            <DialogHeader>
+              <DialogTitle>Assign Selected Stock To Region</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Assign {selectedItems.length} selected stock item{selectedItems.length === 1 ? '' : 's'} to a zone and region.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Zone</Label>
+                  <Select
+                    value={regionAssignmentData.zone_id}
+                    onValueChange={(value) => setRegionAssignmentData({ zone_id: value, region_id: '' })}
+                  >
+                    <SelectTrigger className="glass-input">
+                      <SelectValue placeholder="Select zone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {zones.map((zone) => (
+                        <SelectItem key={zone.id} value={zone.id}>
+                          {zone.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Region</Label>
+                  <Select
+                    value={regionAssignmentData.region_id}
+                    onValueChange={(value) => setRegionAssignmentData((prev) => ({ ...prev, region_id: value }))}
+                  >
+                    <SelectTrigger className="glass-input">
+                      <SelectValue placeholder="Select region" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredAssignmentRegions.map((region) => (
+                        <SelectItem key={region.id} value={region.id}>
+                          {region.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setAssignRegionDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAssignRegion} className="bg-gradient-to-r from-primary to-secondary">
+                Assign Region
               </Button>
             </DialogFooter>
           </DialogContent>

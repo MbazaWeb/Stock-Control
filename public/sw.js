@@ -1,4 +1,4 @@
-const CACHE_NAME = 'stockflow-v1';
+const CACHE_NAME = 'stockflow-v2';
 const PRECACHE_URLS = ['/', '/index.html'];
 
 self.addEventListener('install', (event) => {

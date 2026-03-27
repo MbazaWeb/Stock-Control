@@ -146,6 +146,8 @@ export default function AssignStockPage() {
   const [assignmentData, setAssignmentData] = useState({
     assign_type: 'team_leader',
     assign_to_id: '',
+    zone_id: '',
+    region_id: '',
     notes: '',
     effective_date: new Date().toISOString().split('T')[0],
   });
@@ -292,7 +294,9 @@ export default function AssignStockPage() {
       }
 
       const matchesZone = zoneFilter === 'all' || item.zone_id === zoneFilter;
-      const matchesRegion = regionFilter === 'all' || item.region_id === regionFilter;
+      const matchesRegion =
+        regionFilter === 'all' ||
+        (regionFilter === 'unassigned' ? !item.region_id : item.region_id === regionFilter);
 
       // Tab-based filtering
       if (activeTab !== 'all') {
@@ -314,6 +318,14 @@ export default function AssignStockPage() {
       item.status !== 'sold' && item.status !== 'denied'
     ).map(item => item.id);
   }, [filteredInventory]);
+
+  const assignmentRegions = useMemo(() => {
+    if (!assignmentData.zone_id) {
+      return regions;
+    }
+
+    return regions.filter(region => region.zone_id === assignmentData.zone_id);
+  }, [assignmentData.zone_id, regions]);
 
   const toggleSelect = (id: string) => {
     setSelectedItems(prev => 
@@ -350,6 +362,24 @@ export default function AssignStockPage() {
       return;
     }
 
+    if (!assignmentData.zone_id) {
+      toast({
+        title: 'Zone required',
+        description: 'Please select a zone before assigning stock.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (!assignmentData.region_id) {
+      toast({
+        title: 'Region required',
+        description: 'Please select a region before assigning stock.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       // Check if any selected items are already sold or denied
@@ -374,6 +404,8 @@ export default function AssignStockPage() {
           status: 'assigned',
           assigned_to_type: assignmentData.assign_type,
           assigned_to_id: assignmentData.assign_to_id,
+          zone_id: assignmentData.zone_id,
+          region_id: assignmentData.region_id,
           updated_at: new Date().toISOString(),
         })
         .in('id', selectedItems);
@@ -392,6 +424,8 @@ export default function AssignStockPage() {
       setAssignmentData({
         assign_type: 'team_leader',
         assign_to_id: '',
+        zone_id: '',
+        region_id: '',
         notes: '',
         effective_date: new Date().toISOString().split('T')[0],
       });
@@ -792,6 +826,7 @@ export default function AssignStockPage() {
                   {(zoneFilter === 'all' ? regions : regions.filter(r => r.zone_id === zoneFilter)).map(region => (
                     <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
                   ))}
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1030,6 +1065,43 @@ export default function AssignStockPage() {
               </Select>
             </div>
 
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Zone</Label>
+                <Select
+                  value={assignmentData.zone_id}
+                  onValueChange={(v) => setAssignmentData({ ...assignmentData, zone_id: v, region_id: '' })}
+                >
+                  <SelectTrigger className="glass-input">
+                    <SelectValue placeholder="Select zone" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {zones.map((zone) => (
+                      <SelectItem key={zone.id} value={zone.id}>{zone.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Region</Label>
+                <Select
+                  value={assignmentData.region_id}
+                  onValueChange={(v) => setAssignmentData({ ...assignmentData, region_id: v })}
+                  disabled={!assignmentData.zone_id}
+                >
+                  <SelectTrigger className="glass-input">
+                    <SelectValue placeholder="Select region" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {assignmentRegions.map((region) => (
+                      <SelectItem key={region.id} value={region.id}>{region.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label>Effective Date</Label>
               <Input
@@ -1056,7 +1128,7 @@ export default function AssignStockPage() {
                 <AlertTriangle className="h-4 w-4 text-yellow-600 mt-0.5" />
                 <div className="text-sm text-yellow-800">
                   <p className="font-medium">Important:</p>
-                  <p className="mt-1">This action will mark selected items as "assigned" and link them to the selected team member.</p>
+                  <p className="mt-1">This action will mark selected items as "assigned", link them to the selected team member, and update their zone and region.</p>
                 </div>
               </div>
             </div>
@@ -1066,7 +1138,7 @@ export default function AssignStockPage() {
             <Button variant="outline" onClick={() => setAssignDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAssign} disabled={!assignmentData.assign_to_id || loading}>
+            <Button onClick={handleAssign} disabled={!assignmentData.assign_to_id || !assignmentData.zone_id || !assignmentData.region_id || loading}>
               {loading ? 'Assigning...' : 'Confirm Assignment'}
             </Button>
           </DialogFooter>
