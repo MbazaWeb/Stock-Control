@@ -39,10 +39,10 @@ import {
 } from '@/lib/salesDateRange';
 
 interface Zone { id: string; name: string; }
-interface Region { id: string; name: string; zone_id: string; }
-interface TeamLeader { id: string; name: string; region_id: string; }
-interface Captain { id: string; name: string; team_leader_id: string; }
-interface DSR { id: string; name: string; captain_id: string; }
+interface Region { id: string; name: string; zone_id: string | null; }
+interface TeamLeader { id: string; name: string; region_id: string | null; }
+interface Captain { id: string; name: string; team_leader_id: string | null; }
+interface DSR { id: string; name: string; captain_id: string | null; }
 
 interface StockItem {
   id: string;

@@ -71,11 +71,11 @@ interface SearchResult {
   serial_number: string;
   stock_type: string;
   status: string;
-  payment_status: string;
-  package_status: string;
+  payment_status: string | null;
+  package_status: string | null;
   sale_date?: string;
-  customer_name?: string;
-  notes?: string;
+  customer_name?: string | null;
+  notes?: string | null;
   assigned_to_type?: string | null;
   assigned_to_id?: string | null;
   assigned_to_name?: string | null;
@@ -89,6 +89,18 @@ interface SearchResult {
   created_at: string;
   source: 'inventory' | 'sale';
   dsr_id?: string | null;
+}
+
+interface CaptainWithRegion {
+  id: string;
+  name: string;
+  team_leaders: { region_id: string | null };
+}
+
+interface DsrWithRegion {
+  id: string;
+  name: string;
+  captains: { team_leaders: { region_id: string | null } };
 }
 
 interface FilterOptions {
@@ -140,11 +152,11 @@ interface SalesRow {
   captain_id: string | null;
   dsr_id: string | null;
   created_at: string;
-  zones: { id: string; name: string } | null;
-  regions: { id: string; name: string } | null;
   team_leaders: { name: string } | null;
   captains: { name: string } | null;
   dsrs: { name: string } | null;
+  zones: { id: string; name: string } | null;
+  regions: { id: string; name: string } | null;
 }
 
 export default function AdminSearchPage() {
@@ -235,13 +247,13 @@ export default function AdminSearchPage() {
       if (tlRes.data) setTeamLeaders(tlRes.data);
       if (captainRes.data) {
         const filteredCaptains = isRegionalAdmin && assignedRegionIds.length > 0
-          ? captainRes.data.filter((c: { team_leaders?: { region_id?: string } }) => assignedRegionIds.includes(c.team_leaders?.region_id))
+          ? (captainRes.data as CaptainWithRegion[]).filter((captain) => captain.team_leaders.region_id !== null && assignedRegionIds.includes(captain.team_leaders.region_id))
           : captainRes.data;
         setCaptains(filteredCaptains);
       }
       if (dsrRes.data) {
         const filteredDsrs = isRegionalAdmin && assignedRegionIds.length > 0
-          ? dsrRes.data.filter((d: { captains?: { team_leaders?: { region_id?: string } } }) => assignedRegionIds.includes(d.captains?.team_leaders?.region_id))
+          ? (dsrRes.data as DsrWithRegion[]).filter((dsr) => dsr.captains.team_leaders.region_id !== null && assignedRegionIds.includes(dsr.captains.team_leaders.region_id))
           : dsrRes.data;
         setDsrs(filteredDsrs);
       }
@@ -287,7 +299,7 @@ export default function AdminSearchPage() {
 
         // Fetch assigned person names for inventory items
         const inventoryWithNames = await Promise.all((inventoryData || []).map(async (item: InventoryRow) => {
-          let assigned_to_name = null;
+          let assigned_to_name: string | null = null;
           if (item.assigned_to_id && item.assigned_to_type) {
             const table = item.assigned_to_type === 'team_leader' ? 'team_leaders'
               : item.assigned_to_type === 'captain' ? 'captains' : 'dsrs';
@@ -389,12 +401,12 @@ export default function AdminSearchPage() {
         const dsrNames = Object.fromEntries(dsrData.data?.map(d => [d.id, d.name]) || []);
 
         if (tlIds.length || captainIds.length || dsrIds.length) {
-          const salesPromises = [];
-          const inventoryPromises = [];
+          const salesPromises: Array<PromiseLike<{ data: SalesRow[] | null }>> = [];
+          const inventoryPromises: Array<PromiseLike<{ data: InventoryRow[] | null }>> = [];
 
           if (tlIds.length) {
             let q = supabase.from('sales_records')
-              .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zone_id, region_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+              .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zone_id, region_id, team_leaders:team_leader_id(name), captains:captain_id(name), dsrs:dsr_id(name), zones:zone_id(id, name), regions:region_id(id, name)`)
               .in('team_leader_id', tlIds)
               .gte('sale_date', salesDateRange.startDate)
               .lte('sale_date', salesDateRange.endDate)
@@ -412,7 +424,7 @@ export default function AdminSearchPage() {
           }
           if (captainIds.length) {
             let q = supabase.from('sales_records')
-              .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zone_id, region_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+              .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zone_id, region_id, team_leaders:team_leader_id(name), captains:captain_id(name), dsrs:dsr_id(name), zones:zone_id(id, name), regions:region_id(id, name)`)
               .in('captain_id', captainIds)
               .gte('sale_date', salesDateRange.startDate)
               .lte('sale_date', salesDateRange.endDate)
@@ -430,7 +442,7 @@ export default function AdminSearchPage() {
           }
           if (dsrIds.length) {
             let q = supabase.from('sales_records')
-              .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zone_id, region_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+              .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zone_id, region_id, team_leaders:team_leader_id(name), captains:captain_id(name), dsrs:dsr_id(name), zones:zone_id(id, name), regions:region_id(id, name)`)
               .in('dsr_id', dsrIds)
               .gte('sale_date', salesDateRange.startDate)
               .lte('sale_date', salesDateRange.endDate)
@@ -480,10 +492,10 @@ export default function AdminSearchPage() {
           }));
 
           const inventoryFormatted = uniqueInventory.map((item: InventoryRow) => {
-            let assigned_to_name = null;
-            if (item.assigned_to_type === 'team_leader') assigned_to_name = tlNames[item.assigned_to_id];
-            else if (item.assigned_to_type === 'captain') assigned_to_name = captainNames[item.assigned_to_id];
-            else if (item.assigned_to_type === 'dsr') assigned_to_name = dsrNames[item.assigned_to_id];
+            let assigned_to_name: string | null = null;
+            if (item.assigned_to_type === 'team_leader' && item.assigned_to_id) assigned_to_name = tlNames[item.assigned_to_id] || null;
+            else if (item.assigned_to_type === 'captain' && item.assigned_to_id) assigned_to_name = captainNames[item.assigned_to_id] || null;
+            else if (item.assigned_to_type === 'dsr' && item.assigned_to_id) assigned_to_name = dsrNames[item.assigned_to_id] || null;
 
             return {
               id: item.id,
@@ -574,8 +586,8 @@ export default function AdminSearchPage() {
 
   const openEditDialog = (item: SearchResult) => {
     setSelectedItem(item);
-    setEditPaymentStatus(item.payment_status);
-    setEditPackageStatus(item.package_status);
+    setEditPaymentStatus(item.payment_status ?? '');
+    setEditPackageStatus(item.package_status ?? '');
     setEditStatus(item.status);
     setEditDialogOpen(true);
   };

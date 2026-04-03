@@ -163,7 +163,7 @@ export default function AdminDashboard() {
   const [recentSales, setRecentSales] = useState<SaleRecord[]>([]);
   const [recentAudits, setRecentAudits] = useState<RecentAuditRecord[]>([]);
   const [zones, setZones] = useState<Array<{id: string; name: string}>>([]);
-  const [allRegions, setAllRegions] = useState<Array<{id: string; name: string; zone_id: string}>>([]);
+  const [allRegions, setAllRegions] = useState<Array<{id: string; name: string; zone_id: string | null}>>([]);
   const [zoneFilter, setZoneFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
   const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
@@ -228,8 +228,16 @@ export default function AdminDashboard() {
 
       const assignedMap: Record<string, number> = {};
       const soldMap: Record<string, number> = {};
-      (assignedItems || []).forEach(i => { assignedMap[i.assigned_to_id] = (assignedMap[i.assigned_to_id] || 0) + 1; });
-      (soldItems || []).forEach(i => { soldMap[i.assigned_to_id] = (soldMap[i.assigned_to_id] || 0) + 1; });
+      (assignedItems || []).forEach((item) => {
+        if (item.assigned_to_id) {
+          assignedMap[item.assigned_to_id] = (assignedMap[item.assigned_to_id] || 0) + 1;
+        }
+      });
+      (soldItems || []).forEach((item) => {
+        if (item.assigned_to_id) {
+          soldMap[item.assigned_to_id] = (soldMap[item.assigned_to_id] || 0) + 1;
+        }
+      });
 
       let totalAssigned = 0;
       let totalSold = 0;
@@ -307,11 +315,13 @@ export default function AdminDashboard() {
         .select('count')
         .eq('package_status', 'No Package');
 
-      if (noPackage?.[0]?.count > 5) {
+      const noPackageCount = noPackage?.[0]?.count || 0;
+
+      if (noPackageCount > 5) {
         alertsData.push({
           id: 'package-alert',
           type: 'warning',
-          title: `${noPackage[0].count} Missing Packages`,
+          title: `${noPackageCount} Missing Packages`,
           message: 'Multiple sales without proper packaging',
           timestamp: new Date().toISOString(),
           priority: 3
@@ -462,12 +472,12 @@ export default function AdminDashboard() {
         weeklyGrowth: parseFloat(weeklyGrowth.toFixed(1)),
         monthlyGrowth: parseFloat(monthlyGrowth.toFixed(1)),
         pendingUnpaidUnits: unpaidRes.count || 0,
-        auditedDsrs: new Set((auditRes.data || []).map((audit) => audit.dsr_id)).size,
+        auditedDsrs: new Set((auditRes.data || []).map((audit) => audit.dsr_id).filter((value): value is string => Boolean(value))).size,
         recentActivity: salesTodayRes.count || 0,
       });
       setRecentAudits((auditRes.data || []).map((audit) => ({
         id: audit.id,
-        dsrName: auditDsrMap.get(audit.dsr_id) || 'Unknown DSR',
+        dsrName: audit.dsr_id ? auditDsrMap.get(audit.dsr_id) || 'Unknown DSR' : 'Unknown DSR',
         audit_date: audit.audit_date,
         status: audit.status,
       })));

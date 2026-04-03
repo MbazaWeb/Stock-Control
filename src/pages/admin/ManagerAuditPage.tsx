@@ -156,12 +156,12 @@ export default function ManagerAuditPage() {
 
       const auditDsrIds = Array.from(new Set((auditRows || []).map((row) => row.dsr_id).filter(Boolean)));
       const { data: auditDsrs } = auditDsrIds.length > 0
-        ? await supabase.from('dsrs').select('id, name, captain_id').in('id', auditDsrIds)
+        ? await supabase.from('dsrs').select('id, name, captain_id').in('id', auditDsrIds as string[])
         : { data: [] as Array<{ id: string; name: string; captain_id: string | null }> };
 
       const auditCaptainIds = Array.from(new Set((auditRows || []).map((row) => row.captain_id).filter(Boolean)));
       const { data: auditCaptains } = auditCaptainIds.length > 0
-        ? await supabase.from('captains').select('id, name').in('id', auditCaptainIds)
+        ? await supabase.from('captains').select('id, name').in('id', auditCaptainIds as string[])
         : { data: [] as Array<{ id: string; name: string }> };
 
       const auditDsrMap = new Map((auditDsrs || []).map((dsr) => [dsr.id, dsr]));
@@ -169,7 +169,7 @@ export default function ManagerAuditPage() {
 
       setAudits(
         (auditRows || []).map((row) => {
-          const dsr = auditDsrMap.get(row.dsr_id);
+          const dsr = row.dsr_id ? auditDsrMap.get(row.dsr_id) : null;
           const captainName = row.captain_id
             ? auditCaptainMap.get(row.captain_id) || null
             : dsr?.captain_id
@@ -207,7 +207,7 @@ export default function ManagerAuditPage() {
     fetchData();
   }, [fetchData]);
 
-  const auditedDsrCount = useMemo(() => new Set(audits.map((audit) => audit.dsrName)).size, [audits]);
+  const auditedDsrCount = useMemo(() => new Set(audits.map((audit) => audit.subjectName)).size, [audits]);
   const issueCount = useMemo(() => audits.filter((audit) => audit.status === 'issue').length, [audits]);
   const soldCount = useMemo(() => parseSmartcardEntries(form.sold_smartcards).length, [form.sold_smartcards]);
   const stockCount = useMemo(() => parseSmartcardEntries(form.stock_in_hand_smartcards).length, [form.stock_in_hand_smartcards]);

@@ -63,7 +63,7 @@ interface NoPackageSaleRow {
 }
 
 interface Zone { id: string; name: string; }
-interface Region { id: string; name: string; zone_id: string; }
+interface Region { id: string; name: string; zone_id: string | null; }
 
 export default function NoPackagePage() {
   const defaultSalesDateRange = getDefaultSalesDateRange();

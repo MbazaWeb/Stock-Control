@@ -78,7 +78,7 @@ export default function DSRPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [zones, setZones] = useState<Array<{ id: string; name: string }>>([]);
-  const [allRegions, setAllRegions] = useState<Array<{ id: string; name: string; zone_id: string }>>([]);
+  const [allRegions, setAllRegions] = useState<Array<{ id: string; name: string; zone_id: string | null }>>([]);
   const [teamLeaders, setTeamLeaders] = useState<Array<{ id: string; name: string; region_id: string | null }>>([]);
   const [captains, setCaptains] = useState<Array<{ id: string; name: string; team_leader_id: string | null }>>([]);
   const [zoneFilter, setZoneFilter] = useState('all');

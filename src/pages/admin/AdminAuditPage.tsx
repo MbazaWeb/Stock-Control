@@ -100,6 +100,31 @@ interface DsrOption {
   captain_id: string | null;
 }
 
+interface DsrLookup {
+  id: string;
+  name: string;
+  captain_id: string | null;
+}
+
+interface CaptainLookup {
+  id: string;
+  name: string;
+  team_leader_id: string | null;
+}
+
+interface TeamLeaderLookup {
+  id: string;
+  name: string;
+  region_id: string | null;
+  regions: { name?: string } | null;
+}
+
+interface AuditorLookup {
+  id: string;
+  email: string;
+  role: string;
+}
+
 const initialForm = {
   auditTargetType: 'team_leader' as AuditTargetType,
   team_leader_id: '',
@@ -202,10 +227,10 @@ export default function AdminAuditPage() {
       if (teamLeaderRes.error) throw teamLeaderRes.error;
       if (auditorRes.error) throw auditorRes.error;
 
-      const dsrMap = new Map((dsrRes.data || []).map((dsr) => [dsr.id, dsr]));
-      const captainMap = new Map((captainRes.data || []).map((captain) => [captain.id, captain]));
-      const teamLeaderMap = new Map((teamLeaderRes.data || []).map((teamLeader) => [teamLeader.id, teamLeader]));
-      const auditorMap = new Map((auditorRes.data || []).map((auditor) => [auditor.id, auditor]));
+      const dsrMap = new Map<string, DsrLookup>(((dsrRes.data || []) as DsrLookup[]).map((dsr) => [dsr.id, dsr] as const));
+      const captainMap = new Map<string, CaptainLookup>(((captainRes.data || []) as CaptainLookup[]).map((captain) => [captain.id, captain] as const));
+      const teamLeaderMap = new Map<string, TeamLeaderLookup>(((teamLeaderRes.data || []) as TeamLeaderLookup[]).map((teamLeader) => [teamLeader.id, teamLeader] as const));
+      const auditorMap = new Map<string, AuditorLookup>(((auditorRes.data || []) as AuditorLookup[]).map((auditor) => [auditor.id, auditor] as const));
 
       const mapped = rows
         .map((row) => {

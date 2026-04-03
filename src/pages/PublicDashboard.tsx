@@ -125,7 +125,7 @@ export default function PublicDashboard() {
   const [recentAudits, setRecentAudits] = useState<RecentAudit[]>([]);
   const [loading, setLoading] = useState(true);
   const [zones, setZones] = useState<Array<{id: string; name: string}>>([]);
-  const [allRegions, setAllRegions] = useState<Array<{id: string; name: string; zone_id: string}>>([]);
+  const [allRegions, setAllRegions] = useState<Array<{id: string; name: string; zone_id: string | null}>>([]);
   const [zoneFilter, setZoneFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
   const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
@@ -181,8 +181,16 @@ export default function PublicDashboard() {
 
       const assignedMap: Record<string, number> = {};
       const soldMap: Record<string, number> = {};
-      (assignedItems || []).forEach(i => { assignedMap[i.assigned_to_id] = (assignedMap[i.assigned_to_id] || 0) + 1; });
-      (soldItems || []).forEach(i => { soldMap[i.assigned_to_id] = (soldMap[i.assigned_to_id] || 0) + 1; });
+      (assignedItems || []).forEach((item) => {
+        if (item.assigned_to_id) {
+          assignedMap[item.assigned_to_id] = (assignedMap[item.assigned_to_id] || 0) + 1;
+        }
+      });
+      (soldItems || []).forEach((item) => {
+        if (item.assigned_to_id) {
+          soldMap[item.assigned_to_id] = (soldMap[item.assigned_to_id] || 0) + 1;
+        }
+      });
 
       const tlStockStatus: TLStockStatus[] = teamLeaders.map(tl => {
         const in_hand = assignedMap[tl.id] || 0;
@@ -321,12 +329,12 @@ export default function PublicDashboard() {
         tlAssignedStock,
         tlSoldStock,
         tlInHandStock,
-        auditedDsrs: new Set((auditRes.data || []).map((audit) => audit.dsr_id)).size,
+        auditedDsrs: new Set((auditRes.data || []).map((audit) => audit.dsr_id).filter((value): value is string => Boolean(value))).size,
         recentActivity: salesTodayRes.count ?? 0,
       });
       setRecentAudits((auditRes.data || []).map((audit) => ({
         id: audit.id,
-        dsrName: auditDsrMap.get(audit.dsr_id) || 'Unknown DSR',
+        dsrName: audit.dsr_id ? auditDsrMap.get(audit.dsr_id) || 'Unknown DSR' : 'Unknown DSR',
         audit_date: audit.audit_date,
         status: audit.status,
       })));
@@ -616,10 +624,7 @@ export default function PublicDashboard() {
                     formatter={(value, name) => {
                       return [`${value} units`, 'Units Sold'];
                     }}
-                    labelFormatter={(label, items) => {
-                      const item = items?.[0];
-                      return item ? `${item.payload.date} (${label})` : label;
-                    }}
+                    labelFormatter={(label) => String(label)}
                   />
                   <Area
                     type="monotone"

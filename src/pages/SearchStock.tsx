@@ -54,11 +54,11 @@ interface SearchResult {
   serial_number: string;
   stock_type: string;
   status: string;
-  payment_status: string;
-  package_status: string;
-  sale_date?: string;
-  customer_name?: string;
-  notes?: string;
+  payment_status: string | null;
+  package_status: string | null;
+  sale_date?: string | null;
+  customer_name?: string | null;
+  notes?: string | null;
   assigned_to_type?: string | null;
   assigned_to_id?: string | null;
   assigned_to_name?: string | null;
@@ -71,6 +71,43 @@ interface SearchResult {
   source: 'inventory' | 'sale';
   pending_sale?: boolean;
   dsr_id?: string | null;
+}
+
+interface InventorySearchRow {
+  id: string;
+  smartcard_number: string;
+  serial_number: string;
+  stock_type: string;
+  status: string;
+  payment_status: string | null;
+  package_status: string | null;
+  notes: string | null;
+  created_at: string;
+  assigned_to_type: string | null;
+  assigned_to_id: string | null;
+  zones: { id: string; name: string } | null;
+  regions: { id: string; name: string } | null;
+}
+
+interface SalesSearchRow {
+  id: string;
+  smartcard_number: string;
+  serial_number: string;
+  stock_type: string;
+  payment_status: string | null;
+  package_status: string | null;
+  sale_date: string | null;
+  customer_name: string | null;
+  notes: string | null;
+  created_at: string;
+  team_leader_id: string | null;
+  captain_id: string | null;
+  dsr_id: string | null;
+  team_leaders: { name: string } | null;
+  captains: { name: string } | null;
+  dsrs: { name: string } | null;
+  zones: { id: string; name: string } | null;
+  regions: { id: string; name: string } | null;
 }
 
 interface FilterOptions {
@@ -155,7 +192,7 @@ export default function SearchStock() {
 
         // Fetch assigned person names for inventory items (resolve full hierarchy)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const inventoryWithNames = await Promise.all((inventoryData || []).map(async (item: any) => {
+        const inventoryWithNames = await Promise.all(((inventoryData || []) as InventorySearchRow[]).map(async (item) => {
           let tl_name: string | null = null;
           let captain_name: string | null = null;
           let dsr_name: string | null = null;
@@ -205,7 +242,7 @@ export default function SearchStock() {
 
         // Process inventory data
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const inventoryResults = inventoryWithNames.map((item: any) => ({
+        const inventoryResults = inventoryWithNames.map((item) => ({
           id: item.id,
           smartcard_number: item.smartcard_number,
           serial_number: item.serial_number,
@@ -228,7 +265,7 @@ export default function SearchStock() {
 
         // Process sales data
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const salesResults = (salesData || []).map((item: any) => ({
+        const salesResults = ((salesData || []) as SalesSearchRow[]).map((item) => ({
           id: item.id,
           smartcard_number: item.smartcard_number,
           serial_number: item.serial_number,
@@ -269,11 +306,11 @@ export default function SearchStock() {
 
         if (tlIds.length || captainIds.length || dsrIds.length) {
           // Search sales by person
-          const salesPromises = [];
+          const salesPromises: Array<PromiseLike<{ data: SalesSearchRow[] | null }>> = [];
           if (tlIds.length) {
             salesPromises.push(
               supabase.from('sales_records')
-                .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+                .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, team_leaders:team_leader_id(name), captains:captain_id(name), dsrs:dsr_id(name), zones:zone_id(id, name), regions:region_id(id, name)`)
                 .in('team_leader_id', tlIds)
                 .gte('sale_date', salesDateRange.startDate)
                 .lte('sale_date', salesDateRange.endDate)
@@ -283,7 +320,7 @@ export default function SearchStock() {
           if (captainIds.length) {
             salesPromises.push(
               supabase.from('sales_records')
-                .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+                .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, team_leaders:team_leader_id(name), captains:captain_id(name), dsrs:dsr_id(name), zones:zone_id(id, name), regions:region_id(id, name)`)
                 .in('captain_id', captainIds)
                 .gte('sale_date', salesDateRange.startDate)
                 .lte('sale_date', salesDateRange.endDate)
@@ -293,7 +330,7 @@ export default function SearchStock() {
           if (dsrIds.length) {
             salesPromises.push(
               supabase.from('sales_records')
-                .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zones:zone_id(id, name), regions:region_id(id, name)`)
+                .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, team_leaders:team_leader_id(name), captains:captain_id(name), dsrs:dsr_id(name), zones:zone_id(id, name), regions:region_id(id, name)`)
                 .in('dsr_id', dsrIds)
                 .gte('sale_date', salesDateRange.startDate)
                 .lte('sale_date', salesDateRange.endDate)
@@ -302,7 +339,7 @@ export default function SearchStock() {
           }
 
           // Search inventory by person - separate queries for each type
-          const inventoryPromises = [];
+          const inventoryPromises: Array<PromiseLike<{ data: InventorySearchRow[] | null }>> = [];
           if (tlIds.length) {
             inventoryPromises.push(
               supabase.from('inventory')
@@ -343,7 +380,7 @@ export default function SearchStock() {
           const uniqueInventory = Array.from(new Map(allInventoryData.map(i => [i.id, i])).values());
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const salesFormatted = uniqueSales.map((item: any) => ({
+          const salesFormatted = (uniqueSales as SalesSearchRow[]).map((item) => ({
             id: item.id,
             smartcard_number: item.smartcard_number,
             serial_number: item.serial_number,
@@ -365,11 +402,11 @@ export default function SearchStock() {
           }));
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const inventoryFormatted = uniqueInventory.map((item: any) => {
-            let assigned_to_name = null;
-            if (item.assigned_to_type === 'team_leader') assigned_to_name = tlNames[item.assigned_to_id];
-            else if (item.assigned_to_type === 'captain') assigned_to_name = captainNames[item.assigned_to_id];
-            else if (item.assigned_to_type === 'dsr') assigned_to_name = dsrNames[item.assigned_to_id];
+          const inventoryFormatted = (uniqueInventory as InventorySearchRow[]).map((item) => {
+            let assigned_to_name: string | null = null;
+            if (item.assigned_to_type === 'team_leader' && item.assigned_to_id) assigned_to_name = tlNames[item.assigned_to_id] || null;
+            else if (item.assigned_to_type === 'captain' && item.assigned_to_id) assigned_to_name = captainNames[item.assigned_to_id] || null;
+            else if (item.assigned_to_type === 'dsr' && item.assigned_to_id) assigned_to_name = dsrNames[item.assigned_to_id] || null;
             
             return {
               id: item.id,

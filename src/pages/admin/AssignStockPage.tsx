@@ -84,14 +84,14 @@ interface Captain {
   id: string;
   name: string;
   team_leader_id: string | null;
-  team_leaders?: { name: string };
+  team_leaders?: { name: string } | null;
 }
 
 interface DSR {
   id: string;
   name: string;
   captain_id: string | null;
-  captains?: { name: string; team_leader_id?: string };
+  captains?: { name: string; team_leader_id?: string | null } | null;
 }
 
 interface AssignmentStats {
@@ -172,7 +172,7 @@ export default function AssignStockPage() {
 
   const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistory[]>([]);
   const [zones, setZones] = useState<Array<{id: string, name: string}>>([]);
-  const [regions, setRegions] = useState<Array<{id: string, name: string, zone_id: string}>>([]);
+  const [regions, setRegions] = useState<Array<{id: string, name: string, zone_id: string | null}>>([]);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {

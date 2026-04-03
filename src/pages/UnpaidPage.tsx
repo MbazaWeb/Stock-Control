@@ -122,7 +122,7 @@ export default function UnpaidPage() {
   const [selectedSale, setSelectedSale] = useState<SaleDetail | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [zones, setZones] = useState<Array<{id: string; name: string}>>([]);
-  const [regions, setRegions] = useState<Array<{id: string; name: string; zone_id: string}>>([]);
+  const [regions, setRegions] = useState<Array<{id: string; name: string; zone_id: string | null}>>([]);
   const [zoneFilter, setZoneFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
   const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
