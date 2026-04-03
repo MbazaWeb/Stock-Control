@@ -67,9 +67,9 @@ const PageLoader = () => (
 );
 
 const AdminHomeRoute = () => {
-  const { isTeamLeader, isCaptain, isDSR, isTSM } = useAuth();
+  const { isTeamLeader, isCaptain, isDSR, isTSM, isRegionalAdmin } = useAuth();
 
-  if (isTSM) return <TSMDashboardPage />;
+  if (isTSM || isRegionalAdmin) return <TSMDashboardPage />;
   if (isTeamLeader || isCaptain) return <TLDashboardPage />;
   if (isDSR) return <TLSalesRecordsPage />;
   return <AdminDashboard />;
@@ -78,6 +78,11 @@ const AdminHomeRoute = () => {
 function StandardAdminRoute({ children }: { children: JSX.Element }) {
   const { isTeamLeader, isCaptain, isDSR } = useAuth();
   return isTeamLeader || isCaptain || isDSR ? <Navigate to="/admin" replace /> : children;
+}
+
+function NonRegionalAdminRoute({ children }: { children: JSX.Element }) {
+  const { isRegionalAdmin, isTeamLeader, isCaptain, isDSR } = useAuth();
+  return isRegionalAdmin || isTeamLeader || isCaptain || isDSR ? <Navigate to="/admin" replace /> : children;
 }
 
 function AdminUserRoute({ children }: { children: JSX.Element }) {
@@ -149,7 +154,7 @@ const App = () => (
             <Route path="/admin/assign-stock" element={<StandardAdminRoute><AssignStockPage /></StandardAdminRoute>} />
             <Route path="/admin/record-sales" element={<NonDsrRoute><RecordSalesRoute /></NonDsrRoute>} />
             <Route path="/admin/sales-team" element={<StandardAdminRoute><SalesTeamPage /></StandardAdminRoute>} />
-            <Route path="/admin/zones-regions" element={<StandardAdminRoute><ZonesRegionsPage /></StandardAdminRoute>} />
+            <Route path="/admin/zones-regions" element={<NonRegionalAdminRoute><ZonesRegionsPage /></NonRegionalAdminRoute>} />
             <Route path="/admin/reports" element={<StandardAdminRoute><SalesReportPage /></StandardAdminRoute>} />
             <Route path="/admin/sales-management" element={<StandardAdminRoute><SalesManagementPage /></StandardAdminRoute>} />
             <Route path="/admin/search" element={<StandardAdminRoute><AdminSearchPage /></StandardAdminRoute>} />

@@ -122,6 +122,8 @@ const createEphemeralSupabaseClient = () =>
   });
 const managedAuthClient = createEphemeralSupabaseClient();
 
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
+
 const getRequestErrorMessage = (error: unknown, fallback: string) => {
   if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
     const requestError = error as { message: string; details?: string | null; hint?: string | null; code?: string | null };
@@ -134,10 +136,38 @@ const getRequestErrorMessage = (error: unknown, fallback: string) => {
       return 'The database is missing one of the admin_users columns required by this page. Apply the latest admin_users SQL updates, then try again.';
     }
 
+    if (requestError.code === '23505') {
+      const combinedMessage = [requestError.message, requestError.details, requestError.hint].filter(Boolean).join(' ');
+
+      if (combinedMessage.includes('admin_users_email_key') || combinedMessage.includes('Key (email)=')) {
+        return 'This email is already linked to an app login. Use a different email or edit the existing user.';
+      }
+
+      if (combinedMessage.includes('admin_users_captain_id_unique') || combinedMessage.includes('Key (captain_id)=')) {
+        return 'This captain already has a login linked in the app.';
+      }
+
+      if (combinedMessage.includes('admin_users_dsr_id_unique') || combinedMessage.includes('Key (dsr_id)=')) {
+        return 'This DSR already has a login linked in the app.';
+      }
+
+      return 'A duplicate app login already exists for this record.';
+    }
+
     return [requestError.message, requestError.details, requestError.hint].filter(Boolean).join(' ');
   }
 
   if (error instanceof Error) {
+    const normalizedMessage = error.message.toLowerCase();
+
+    if (normalizedMessage.includes('already registered') || normalizedMessage.includes('already been registered')) {
+      return 'This email already exists in Supabase Auth. Use another email, or link the existing auth user manually.';
+    }
+
+    if (normalizedMessage.includes('password should')) {
+      return error.message;
+    }
+
     if (error.message.toLowerCase().includes('security purposes')) {
       return error.message;
     }
@@ -154,12 +184,21 @@ const isMissingAdminUserNameColumn = (error: unknown) => {
   return error.code === '42703' && typeof error.message === 'string' && error.message.includes('admin_users.name');
 };
 
+interface AdminUserConflictRow {
+  id: string;
+  email: string;
+  role: string;
+  team_leader_id: string | null;
+  captain_id: string | null;
+  dsr_id: string | null;
+}
+
 export default function RegionalAdminPage() {
   const { toast } = useToast();
-  const { adminUser, isSuperAdmin, isLoading: isAuthLoading } = useAuth();
+  const { adminUser, isSuperAdmin, isRegionalAdmin, assignedRegionIds, isLoading: isAuthLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const canManageSalesRoles = isSuperAdmin || adminUser?.role === 'admin';
+  const canManageSalesRoles = isSuperAdmin || adminUser?.role === 'admin' || isRegionalAdmin;
   const managedRoles = useMemo<UserRole[]>(
     () => (isSuperAdmin
       ? ['regional_admin', 'tsm', 'team_leader', 'captain', 'dsr']
@@ -245,17 +284,93 @@ export default function RegionalAdminPage() {
 
   const createManagedAuthUser = async (email: string, password: string) => {
     const client = managedAuthClient;
-    const { data, error } = await client.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/admin/login`,
-      },
-    });
+    const normalizedEmail = normalizeEmail(email);
 
-    if (error) throw error;
-    if (!data.user?.id) throw new Error('User account could not be created.');
-    return data.user.id;
+    try {
+      const { data, error } = await client.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/admin/login`,
+        },
+      });
+
+      if (error) {
+        const normalizedMessage = error.message.toLowerCase();
+
+        if (normalizedMessage.includes('already registered') || normalizedMessage.includes('already been registered')) {
+          const { data: signInData, error: signInError } = await client.auth.signInWithPassword({
+            email: normalizedEmail,
+            password,
+          });
+
+          if (signInError || !signInData.user?.id) {
+            throw new Error('This email already exists in Supabase Auth, but the password does not match the existing account. Use the original password or remove that auth user before retrying.');
+          }
+
+          return signInData.user.id;
+        }
+
+        throw error;
+      }
+
+      if (!data.user?.id) throw new Error('User account could not be created.');
+      return data.user.id;
+    } finally {
+      await client.auth.signOut();
+    }
+  };
+
+  const assertNoManagedUserConflict = async ({
+    email,
+    excludedUserId,
+    teamLeaderId,
+    captainId,
+    dsrId,
+  }: {
+    email: string;
+    excludedUserId?: string;
+    teamLeaderId?: string | null;
+    captainId?: string | null;
+    dsrId?: string | null;
+  }) => {
+    const normalizedEmail = normalizeEmail(email);
+
+    const [emailRes, teamLeaderRes, captainRes, dsrRes] = await Promise.all([
+      supabase.from('admin_users').select('id, email, role, team_leader_id, captain_id, dsr_id').eq('email', normalizedEmail).maybeSingle(),
+      teamLeaderId
+        ? supabase.from('admin_users').select('id, email, role, team_leader_id, captain_id, dsr_id').eq('team_leader_id', teamLeaderId).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      captainId
+        ? supabase.from('admin_users').select('id, email, role, team_leader_id, captain_id, dsr_id').eq('captain_id', captainId).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      dsrId
+        ? supabase.from('admin_users').select('id, email, role, team_leader_id, captain_id, dsr_id').eq('dsr_id', dsrId).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+
+    if (emailRes.error) throw emailRes.error;
+    if (teamLeaderRes.error) throw teamLeaderRes.error;
+    if (captainRes.error) throw captainRes.error;
+    if (dsrRes.error) throw dsrRes.error;
+
+    const isOtherUser = (row: AdminUserConflictRow | null) => row && row.id !== excludedUserId;
+
+    if (isOtherUser(emailRes.data as AdminUserConflictRow | null)) {
+      throw new Error('This email is already linked to an app login. Use a different email or edit the existing user.');
+    }
+
+    if (isOtherUser(teamLeaderRes.data as AdminUserConflictRow | null)) {
+      throw new Error('This team leader already has a login linked in the app. Edit the existing user instead.');
+    }
+
+    if (isOtherUser(captainRes.data as AdminUserConflictRow | null)) {
+      throw new Error('This captain already has a login linked in the app. Edit the existing user instead.');
+    }
+
+    if (isOtherUser(dsrRes.data as AdminUserConflictRow | null)) {
+      throw new Error('This DSR already has a login linked in the app. Edit the existing user instead.');
+    }
   };
 
   const fetchData = useCallback(async () => {
@@ -285,10 +400,18 @@ export default function RegionalAdminPage() {
         };
       };
 
+      let regionsQuery = supabase.from('regions').select('id, name, zone_id, zones:zone_id(name)').order('name');
+      let teamLeadersQuery = supabase.from('team_leaders').select('id, name, phone, region_id, regions:region_id(name)').order('name');
+
+      if (isRegionalAdmin && assignedRegionIds.length > 0) {
+        regionsQuery = regionsQuery.in('id', assignedRegionIds);
+        teamLeadersQuery = teamLeadersQuery.in('region_id', assignedRegionIds);
+      }
+
       const [usersRes, regionsRes, teamLeadersRes, captainsRes, dsrsRes] = await Promise.all([
         loadUsers(),
-        supabase.from('regions').select('id, name, zone_id, zones:zone_id(name)').order('name'),
-        supabase.from('team_leaders').select('id, name, phone, region_id, regions:region_id(name)').order('name'),
+        regionsQuery,
+        teamLeadersQuery,
         supabase.from('captains').select('id, name, phone, team_leader_id').order('name'),
         supabase.from('dsrs').select('id, name, phone, captain_id').order('name'),
       ]);
@@ -300,8 +423,16 @@ export default function RegionalAdminPage() {
       if (dsrsRes.error) throw dsrsRes.error;
 
       const teamLeaderList = (teamLeadersRes.data || []) as TeamLeaderOption[];
-      const captainList = (captainsRes.data || []) as CaptainOption[];
-      const dsrList = (dsrsRes.data || []) as DsrOption[];
+      const allCaptainList = (captainsRes.data || []) as CaptainOption[];
+      const teamLeaderIds = new Set(teamLeaderList.map((teamLeader) => teamLeader.id));
+      const captainList = isRegionalAdmin && assignedRegionIds.length > 0
+        ? allCaptainList.filter((captain) => captain.team_leader_id !== null && teamLeaderIds.has(captain.team_leader_id))
+        : allCaptainList;
+      const captainIds = new Set(captainList.map((captain) => captain.id));
+      const allDsrList = (dsrsRes.data || []) as DsrOption[];
+      const dsrList = isRegionalAdmin && assignedRegionIds.length > 0
+        ? allDsrList.filter((dsr) => dsr.captain_id !== null && captainIds.has(dsr.captain_id))
+        : allDsrList;
       const captainMap = new Map(captainList.map((captain) => [captain.id, captain]));
       const regionScopedAdminIds = ((usersRes.data || []) as ManagedUser[])
         .filter((user) => user.role === 'regional_admin' || user.role === 'tsm')
@@ -377,7 +508,16 @@ export default function RegionalAdminPage() {
         })
       );
 
-      setUsers(mappedUsers);
+      const scopedUsers = isRegionalAdmin
+        ? mappedUsers.filter((user) => {
+            if (user.role === 'team_leader') return Boolean(user.team_leader);
+            if (user.role === 'captain') return Boolean(user.captain);
+            if (user.role === 'dsr') return Boolean(user.dsr);
+            return false;
+          })
+        : mappedUsers;
+
+      setUsers(scopedUsers);
       setRegions(regionsRes.data || []);
       setTeamLeaders(teamLeaderList);
       setCaptains(captainList);
@@ -388,7 +528,7 @@ export default function RegionalAdminPage() {
     } finally {
       setLoading(false);
     }
-  }, [managedRoles, toast]);
+  }, [assignedRegionIds, isRegionalAdmin, managedRoles, toast]);
 
   useEffect(() => {
     if (canManageSalesRoles) {
@@ -401,6 +541,8 @@ export default function RegionalAdminPage() {
   const teamLeaderUsers = useMemo(() => users.filter((user) => user.role === 'team_leader'), [users]);
   const captainUsers = useMemo(() => users.filter((user) => user.role === 'captain'), [users]);
   const dsrUsers = useMemo(() => users.filter((user) => user.role === 'dsr'), [users]);
+  const scopedSummaryLabel = isSuperAdmin ? 'Region-Scoped Admins' : 'Assigned Regions';
+  const scopedSummaryValue = isSuperAdmin ? regionalAdmins.length + tsmUsers.length : regions.length;
 
   const filteredRegionalAdmins = useMemo(
     () =>
@@ -573,7 +715,9 @@ export default function RegionalAdminPage() {
   };
 
   const handleSaveRegionalUser = async () => {
-    if (!regionalForm.email.trim()) {
+    const normalizedEmail = normalizeEmail(regionalForm.email);
+
+    if (!normalizedEmail) {
       toast({ title: 'Error', description: 'Email is required.', variant: 'destructive' });
       return;
     }
@@ -591,26 +735,28 @@ export default function RegionalAdminPage() {
       let adminId = editingRegionalUser?.id;
       const scopedRole = regionalForm.role;
 
+      await assertNoManagedUserConflict({ email: normalizedEmail, excludedUserId: editingRegionalUser?.id });
+
       if (editingRegionalUser) {
         let { error } = await supabase
           .from('admin_users')
-          .update({ name: regionalForm.name.trim() || null, email: regionalForm.email.trim(), role: scopedRole })
+          .update({ name: regionalForm.name.trim() || null, email: normalizedEmail, role: scopedRole })
           .eq('id', editingRegionalUser.id);
         if (isMissingAdminUserNameColumn(error)) {
           ({ error } = await supabase
             .from('admin_users')
-            .update({ email: regionalForm.email.trim(), role: scopedRole })
+            .update({ email: normalizedEmail, role: scopedRole })
             .eq('id', editingRegionalUser.id));
         }
         if (error) throw error;
         await supabase.from('admin_region_assignments').delete().eq('admin_id', editingRegionalUser.id);
       } else {
-        const userId = await createManagedAuthUser(regionalForm.email.trim(), regionalForm.password.trim());
+        const userId = await createManagedAuthUser(normalizedEmail, regionalForm.password.trim());
         let insertResult = await supabase
           .from('admin_users')
           .insert({
             name: regionalForm.name.trim() || null,
-            email: regionalForm.email.trim(),
+            email: normalizedEmail,
             role: scopedRole,
             user_id: userId,
             team_leader_id: null,
@@ -621,7 +767,7 @@ export default function RegionalAdminPage() {
           insertResult = await supabase
             .from('admin_users')
             .insert({
-              email: regionalForm.email.trim(),
+              email: normalizedEmail,
               role: scopedRole,
               user_id: userId,
               team_leader_id: null,
@@ -657,11 +803,13 @@ export default function RegionalAdminPage() {
   };
 
   const handleSaveTeamLeaderUser = async () => {
+    const normalizedEmail = normalizeEmail(teamLeaderForm.email);
+
     if (!teamLeaderForm.teamLeaderId) {
       toast({ title: 'Error', description: 'Select a team leader first.', variant: 'destructive' });
       return;
     }
-    if (!teamLeaderForm.email.trim()) {
+    if (!normalizedEmail) {
       toast({ title: 'Error', description: 'Email is required.', variant: 'destructive' });
       return;
     }
@@ -678,11 +826,13 @@ export default function RegionalAdminPage() {
 
     setSaving(true);
     try {
+      await assertNoManagedUserConflict({ email: normalizedEmail, excludedUserId: editingTLUser?.id, teamLeaderId: linkedTeamLeader.id });
+
       if (editingTLUser) {
         const { error } = await supabase
           .from('admin_users')
           .update({
-            email: teamLeaderForm.email.trim(),
+            email: normalizedEmail,
             team_leader_id: linkedTeamLeader.id,
             captain_id: null,
             dsr_id: null,
@@ -690,9 +840,9 @@ export default function RegionalAdminPage() {
           .eq('id', editingTLUser.id);
         if (error) throw error;
       } else {
-        const userId = await createManagedAuthUser(teamLeaderForm.email.trim(), teamLeaderForm.password.trim());
+        const userId = await createManagedAuthUser(normalizedEmail, teamLeaderForm.password.trim());
         const { error } = await supabase.from('admin_users').insert({
-          email: teamLeaderForm.email.trim(),
+          email: normalizedEmail,
           role: 'team_leader',
           user_id: userId,
           team_leader_id: linkedTeamLeader.id,
@@ -718,11 +868,13 @@ export default function RegionalAdminPage() {
   };
 
   const handleSaveCaptainUser = async () => {
+    const normalizedEmail = normalizeEmail(captainForm.email);
+
     if (!captainForm.captainId) {
       toast({ title: 'Error', description: 'Select a captain first.', variant: 'destructive' });
       return;
     }
-    if (!captainForm.email.trim()) {
+    if (!normalizedEmail) {
       toast({ title: 'Error', description: 'Email is required.', variant: 'destructive' });
       return;
     }
@@ -739,11 +891,13 @@ export default function RegionalAdminPage() {
 
     setSaving(true);
     try {
+      await assertNoManagedUserConflict({ email: normalizedEmail, excludedUserId: editingCaptainUser?.id, captainId: linkedCaptain.id });
+
       if (editingCaptainUser) {
         const { error } = await supabase
           .from('admin_users')
           .update({
-            email: captainForm.email.trim(),
+            email: normalizedEmail,
             team_leader_id: linkedCaptain.team_leader_id,
             captain_id: linkedCaptain.id,
             dsr_id: null,
@@ -751,9 +905,9 @@ export default function RegionalAdminPage() {
           .eq('id', editingCaptainUser.id);
         if (error) throw error;
       } else {
-        const userId = await createManagedAuthUser(captainForm.email.trim(), captainForm.password.trim());
+        const userId = await createManagedAuthUser(normalizedEmail, captainForm.password.trim());
         const { error } = await supabase.from('admin_users').insert({
-          email: captainForm.email.trim(),
+          email: normalizedEmail,
           role: 'captain',
           user_id: userId,
           team_leader_id: linkedCaptain.team_leader_id,
@@ -776,11 +930,13 @@ export default function RegionalAdminPage() {
   };
 
   const handleSaveDsrUser = async () => {
+    const normalizedEmail = normalizeEmail(dsrForm.email);
+
     if (!dsrForm.dsrId) {
       toast({ title: 'Error', description: 'Select a DSR first.', variant: 'destructive' });
       return;
     }
-    if (!dsrForm.email.trim()) {
+    if (!normalizedEmail) {
       toast({ title: 'Error', description: 'Email is required.', variant: 'destructive' });
       return;
     }
@@ -799,25 +955,27 @@ export default function RegionalAdminPage() {
 
     setSaving(true);
     try {
+      await assertNoManagedUserConflict({ email: normalizedEmail, excludedUserId: editingDsrUser?.id, dsrId: linkedDsr.id });
+
       if (editingDsrUser) {
         const { error } = await supabase
           .from('admin_users')
           .update({
-            email: dsrForm.email.trim(),
+            email: normalizedEmail,
             team_leader_id: linkedCaptain?.team_leader_id || null,
-            captain_id: linkedDsr.captain_id,
+            captain_id: null,
             dsr_id: linkedDsr.id,
           })
           .eq('id', editingDsrUser.id);
         if (error) throw error;
       } else {
-        const userId = await createManagedAuthUser(dsrForm.email.trim(), dsrForm.password.trim());
+        const userId = await createManagedAuthUser(normalizedEmail, dsrForm.password.trim());
         const { error } = await supabase.from('admin_users').insert({
-          email: dsrForm.email.trim(),
+          email: normalizedEmail,
           role: 'dsr',
           user_id: userId,
           team_leader_id: linkedCaptain?.team_leader_id || null,
-          captain_id: linkedDsr.captain_id,
+          captain_id: null,
           dsr_id: linkedDsr.id,
         });
         if (error) throw error;
@@ -889,7 +1047,11 @@ export default function RegionalAdminPage() {
               <Users className="h-8 w-8 text-primary" />
               Users Page
             </h1>
-            <p className="text-muted-foreground mt-1">Manage sales-team login credentials and access roles, including TSM accounts.</p>
+            <p className="text-muted-foreground mt-1">
+              {isSuperAdmin
+                ? 'Manage sales-team login credentials and access roles, including TSM accounts.'
+                : 'Manage team leader, captain, and DSR logins within your assigned regions.'}
+            </p>
           </div>
           <Button variant="outline" onClick={fetchData} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -905,8 +1067,8 @@ export default function RegionalAdminPage() {
           </GlassCard>
           <GlassCard className="p-4 text-center">
             <Shield className="h-6 w-6 mx-auto text-blue-500 mb-2" />
-            <p className="text-2xl font-bold">{regionalAdmins.length + tsmUsers.length}</p>
-            <p className="text-sm text-muted-foreground">Region-Scoped Admins</p>
+            <p className="text-2xl font-bold">{scopedSummaryValue}</p>
+            <p className="text-sm text-muted-foreground">{scopedSummaryLabel}</p>
           </GlassCard>
           <GlassCard className="p-4 text-center">
             <UserCircle2 className="h-6 w-6 mx-auto text-amber-500 mb-2" />

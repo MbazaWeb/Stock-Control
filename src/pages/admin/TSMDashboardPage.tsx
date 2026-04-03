@@ -54,7 +54,7 @@ const initialStats: DashboardStats = {
 };
 
 export default function TSMDashboardPage() {
-  const { adminUser, assignedRegionIds } = useAuth();
+  const { adminUser, assignedRegionIds, isRegionalAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState<DashboardStats>(initialStats);
@@ -248,14 +248,20 @@ export default function TSMDashboardPage() {
     { label: 'Issue Audits', value: stats.issueAudits, icon: ClipboardCheck },
   ];
 
+  const dashboardTitle = isRegionalAdmin ? 'Regional Admin Dashboard' : 'TSM Dashboard';
+  const dashboardDescription = isRegionalAdmin
+    ? 'Region-wide visibility across your assigned regions.'
+    : 'Territory-wide visibility across your assigned regions.';
+  const signedInLabel = isRegionalAdmin ? 'Regional Admin' : 'Territory Manager';
+
   return (
     <AdminLayout>
       <div className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-display font-bold">TSM Dashboard</h1>
-            <p className="text-muted-foreground mt-1">Territory-wide visibility across your assigned regions.</p>
-            <p className="text-sm text-muted-foreground mt-1">Signed in as {adminUser?.name || adminUser?.email || 'Territory Manager'}.</p>
+            <h1 className="text-3xl font-display font-bold">{dashboardTitle}</h1>
+            <p className="text-muted-foreground mt-1">{dashboardDescription}</p>
+            <p className="text-sm text-muted-foreground mt-1">Signed in as {adminUser?.name || adminUser?.email || signedInLabel}.</p>
             <div className="flex flex-wrap gap-2 mt-3">
               <Button
                 variant={regionFilter === 'all' ? 'default' : 'outline'}

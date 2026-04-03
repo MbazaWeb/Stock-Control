@@ -76,7 +76,7 @@ const dsrMenuItems: MenuItem[] = [
 export default function AdminSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut, adminUser, isSuperAdmin, isTSM, isTeamLeader, isCaptain, isDSR, currentTeamLeader, currentCaptain, currentDSR } = useAuth();
+  const { signOut, adminUser, isSuperAdmin, isRegionalAdmin, isTSM, isTeamLeader, isCaptain, isDSR, currentTeamLeader, currentCaptain, currentDSR } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -101,7 +101,11 @@ export default function AdminSidebar() {
     navigate('/admin/login');
   };
 
-  const visibleMenuItems = (isDSR ? dsrMenuItems : (isTSM ? tsmMenuItems : (isTeamLeader || isCaptain ? teamLeaderMenuItems : adminMenuItems))).filter((item) => !item.superAdminOnly || isSuperAdmin);
+  const visibleMenuItems = (isDSR ? dsrMenuItems : (isTSM ? tsmMenuItems : (isTeamLeader || isCaptain ? teamLeaderMenuItems : adminMenuItems))).filter((item) => {
+    if (item.superAdminOnly && !isSuperAdmin) return false;
+    if (isRegionalAdmin && item.href === '/admin/zones-regions') return false;
+    return true;
+  });
 
   const roleLabel = adminUser?.role === 'super_admin'
     ? 'Super Admin'
