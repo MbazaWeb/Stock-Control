@@ -374,7 +374,7 @@ export default function TLTeamPage() {
             {!isCaptain && (
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="dsr-captain">Assign To Captain</Label>
-                <select id="dsr-captain" value={dsrForm.captain_id} onChange={(event) => setDsrForm((current) => ({ ...current, captain_id: event.target.value }))} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
+                <select id="dsr-captain" name="dsr-captain" aria-label="Assign to captain" title="Assign to captain" value={dsrForm.captain_id} onChange={(event) => setDsrForm((current) => ({ ...current, captain_id: event.target.value }))} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
                   <option value="">Choose captain</option>
                   {availableCaptains.map((captain) => (
                     <option key={captain.id} value={captain.id}>{captain.name}</option>
