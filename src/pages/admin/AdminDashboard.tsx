@@ -19,8 +19,10 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import AdminLayout from '@/components/layout/AdminLayout';
+import SalesDateFilter from '@/components/SalesDateFilter';
 import StatsCard from '@/components/ui/StatsCard';
 import GlassCard from '@/components/ui/GlassCard';
+import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -46,6 +48,14 @@ import {
   Legend
 } from 'recharts';
 // ExcelJS loaded dynamically in handleExport
+import {
+  createSalesDateRange,
+  describeSalesDateRange,
+  getDefaultSalesDateRange,
+  getPreviousSalesDateRange,
+  getSalesDatePresetLabel,
+  type SalesDatePreset,
+} from '@/lib/salesDateRange';
 
 interface DashboardStats {
   totalStock: number;
@@ -54,7 +64,7 @@ interface DashboardStats {
   soldThisMonth: number;
   unpaidCount: number;
   noPackageCount: number;
-  unassignedSold: number;
+  incompleteSales: number;
   teamLeaders: number;
   captains: number;
   dsrs: number;
@@ -64,6 +74,7 @@ interface DashboardStats {
   weeklyGrowth: number;
   monthlyGrowth: number;
   pendingUnpaidUnits: number;
+  auditedDsrs: number;
   recentActivity: number;
 }
 
@@ -111,7 +122,15 @@ interface SaleRecord {
   dsr_id: string | null;
 }
 
+interface RecentAuditRecord {
+  id: string;
+  dsrName: string;
+  audit_date: string;
+  status: string;
+}
+
 export default function AdminDashboard() {
+  const defaultSalesDateRange = getDefaultSalesDateRange();
   const [stats, setStats] = useState<DashboardStats>({
     totalStock: 0,
     availableStock: 0,
@@ -119,7 +138,7 @@ export default function AdminDashboard() {
     soldThisMonth: 0,
     unpaidCount: 0,
     noPackageCount: 0,
-    unassignedSold: 0,
+    incompleteSales: 0,
     teamLeaders: 0,
     captains: 0,
     dsrs: 0,
@@ -129,6 +148,7 @@ export default function AdminDashboard() {
     weeklyGrowth: 0,
     monthlyGrowth: 0,
     pendingUnpaidUnits: 0,
+    auditedDsrs: 0,
     recentActivity: 0,
   });
   
@@ -141,10 +161,18 @@ export default function AdminDashboard() {
   const [quickStats, setQuickStats] = useState<QuickStat[]>([]);
   const [timeRange, setTimeRange] = useState<'week' | 'month' | 'quarter'>('week');
   const [recentSales, setRecentSales] = useState<SaleRecord[]>([]);
+  const [recentAudits, setRecentAudits] = useState<RecentAuditRecord[]>([]);
   const [zones, setZones] = useState<Array<{id: string; name: string}>>([]);
   const [allRegions, setAllRegions] = useState<Array<{id: string; name: string; zone_id: string}>>([]);
   const [zoneFilter, setZoneFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
+  const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
+  const [salesDateFrom, setSalesDateFrom] = useState(defaultSalesDateRange.startDate);
+  const [salesDateTo, setSalesDateTo] = useState(defaultSalesDateRange.endDate);
+
+  const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
+  const salesDateLabel = describeSalesDateRange(salesDateRange);
+  const salesDateTitle = getSalesDatePresetLabel(salesDateRange.preset);
 
   useEffect(() => {
     const fetchFilters = async () => {
@@ -165,7 +193,14 @@ export default function AdminDashboard() {
     const interval = setInterval(fetchDashboardData, 5 * 60 * 1000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoneFilter, regionFilter]);
+  }, [zoneFilter, regionFilter, salesDateRange.startDate, salesDateRange.endDate]);
+
+  const handleSalesDatePresetChange = (preset: SalesDatePreset) => {
+    const nextRange = createSalesDateRange(preset, salesDateFrom, salesDateTo);
+    setSalesDatePreset(preset);
+    setSalesDateFrom(nextRange.startDate);
+    setSalesDateTo(nextRange.endDate);
+  };
 
   const fetchTLStockData = async () => {
     try {
@@ -291,7 +326,6 @@ export default function AdminDashboard() {
 
   const fetchRecentSales = async () => {
     try {
-      const today = new Date().toISOString().split('T')[0];
       let query = supabase
         .from('sales_records')
         .select(`
@@ -307,7 +341,8 @@ export default function AdminDashboard() {
           dsr_id,
           created_at
         `)
-        .eq('sale_date', today)
+        .gte('sale_date', salesDateRange.startDate)
+        .lte('sale_date', salesDateRange.endDate)
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -335,10 +370,7 @@ export default function AdminDashboard() {
     setRefreshing(true);
     try {
       const today = new Date().toISOString().split('T')[0];
-      const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-        .toISOString().split('T')[0];
-      const startOfLastMonth = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)
-        .toISOString().split('T')[0];
+      const previousSalesDateRange = getPreviousSalesDateRange(salesDateRange);
 
       const tlStockData = await fetchTLStockData();
 
@@ -370,31 +402,44 @@ export default function AdminDashboard() {
         inventoryRes,
         availableRes,
         salesTodayRes,
-        salesMonthRes,
-        salesLastMonthRes,
+        salesPeriodRes,
+        previousSalesPeriodRes,
         unpaidRes,
         noPackageRes,
-        unassignedRes,
+        incompleteRes,
         tlRes,
         captainRes,
         dsrRes,
+        auditRes,
       ] = await Promise.all([
         invQ(),
         invQ().eq('status', 'available').is('assigned_to_id', null),
         salesQ().eq('sale_date', today),
-        salesQ(false).gte('sale_date', startOfMonth),
-        salesQ().gte('sale_date', startOfLastMonth).lt('sale_date', startOfMonth),
-        salesQ(false).eq('payment_status', 'Unpaid'),
-        salesQ().eq('package_status', 'No Package'),
-        salesQ().is('team_leader_id', null).is('captain_id', null).is('dsr_id', null),
+        salesQ(false).gte('sale_date', salesDateRange.startDate).lte('sale_date', salesDateRange.endDate),
+        salesQ().gte('sale_date', previousSalesDateRange.startDate).lte('sale_date', previousSalesDateRange.endDate),
+        salesQ(false).eq('payment_status', 'Unpaid').gte('sale_date', salesDateRange.startDate).lte('sale_date', salesDateRange.endDate),
+        salesQ().eq('package_status', 'No Package').gte('sale_date', salesDateRange.startDate).lte('sale_date', salesDateRange.endDate),
+        salesQ().is('dsr_id', null).gte('sale_date', salesDateRange.startDate).lte('sale_date', salesDateRange.endDate),
         tlQ(),
         supabase.from('captains').select('id', { count: 'exact', head: true }),
         supabase.from('dsrs').select('id', { count: 'exact', head: true }),
+        supabase.from('audits').select('id, dsr_id, audit_date, status').eq('audit_target_type', 'dsr').gte('audit_date', salesDateRange.startDate).lte('audit_date', salesDateRange.endDate).order('audit_date', { ascending: false }).limit(5),
       ]);
 
+      const auditDsrIds = Array.from(new Set((auditRes.data || []).map((audit) => audit.dsr_id).filter(Boolean))) as string[];
+      const { data: auditDsrs } = auditDsrIds.length > 0
+        ? await supabase.from('dsrs').select('id, name').in('id', auditDsrIds)
+        : { data: [] as Array<{ id: string; name: string }> };
+      const auditDsrMap = new Map((auditDsrs || []).map((dsr) => [dsr.id, dsr.name]));
+
       // Calculate growth
-      const monthlyGrowth = salesLastMonthRes.count ? 
-        ((salesMonthRes.count - salesLastMonthRes.count) / salesLastMonthRes.count) * 100 : 0;
+      const currentSalesCount = salesPeriodRes.count || 0;
+      const previousSalesCount = previousSalesPeriodRes.count || 0;
+      const monthlyGrowth = previousSalesCount > 0
+        ? ((currentSalesCount - previousSalesCount) / previousSalesCount) * 100
+        : currentSalesCount > 0
+          ? 100
+          : 0;
 
       const totalSalesWeek = await calculateWeeklySales();
       const weeklyGrowth = totalSalesWeek > 0 ? 
@@ -404,10 +449,10 @@ export default function AdminDashboard() {
         totalStock: inventoryRes.count || 0,
         availableStock: availableRes.count || 0,
         soldToday: salesTodayRes.count || 0,
-        soldThisMonth: salesMonthRes.count || 0,
+        soldThisMonth: currentSalesCount,
         unpaidCount: unpaidRes.count || 0,
         noPackageCount: noPackageRes.count || 0,
-        unassignedSold: unassignedRes.count || 0,
+        incompleteSales: incompleteRes.count || 0,
         teamLeaders: tlRes.count || 0,
         captains: captainRes.count || 0,
         dsrs: dsrRes.count || 0,
@@ -417,8 +462,15 @@ export default function AdminDashboard() {
         weeklyGrowth: parseFloat(weeklyGrowth.toFixed(1)),
         monthlyGrowth: parseFloat(monthlyGrowth.toFixed(1)),
         pendingUnpaidUnits: unpaidRes.count || 0,
+        auditedDsrs: new Set((auditRes.data || []).map((audit) => audit.dsr_id)).size,
         recentActivity: salesTodayRes.count || 0,
       });
+      setRecentAudits((auditRes.data || []).map((audit) => ({
+        id: audit.id,
+        dsrName: auditDsrMap.get(audit.dsr_id) || 'Unknown DSR',
+        audit_date: audit.audit_date,
+        status: audit.status,
+      })));
 
       setTopTLs(tlStockData.topTLs);
 
@@ -687,6 +739,14 @@ export default function AdminDashboard() {
                 {(zoneFilter === 'all' ? allRegions : allRegions.filter(r => r.zone_id === zoneFilter)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
               </SelectContent>
             </Select>
+            <SalesDateFilter
+              preset={salesDatePreset}
+              startDate={salesDateFrom}
+              endDate={salesDateTo}
+              onPresetChange={handleSalesDatePresetChange}
+              onStartDateChange={setSalesDateFrom}
+              onEndDateChange={setSalesDateTo}
+            />
           </div>
         </GlassCard>
 
@@ -746,9 +806,9 @@ export default function AdminDashboard() {
             variant="warning"
           />
           <StatsCard
-            title="Monthly Units"
+            title={salesDateTitle}
             value={stats.soldThisMonth.toString()}
-            subtitle={`${stats.monthlyGrowth >= 0 ? '+' : ''}${stats.monthlyGrowth}% from last month`}
+            subtitle={`${salesDateLabel} • ${stats.monthlyGrowth >= 0 ? '+' : ''}${stats.monthlyGrowth}% vs previous period`}
             icon={BarChart3}
             variant={stats.monthlyGrowth >= 0 ? "success" : "destructive"}
           />
@@ -758,7 +818,7 @@ export default function AdminDashboard() {
           <StatsCard
             title="Team Leaders"
             value={stats.teamLeaders.toString()}
-            subtitle={`${stats.captains} captains • ${stats.dsrs} DSRs`}
+            subtitle={`${stats.captains} captains • ${stats.dsrs} DSRs • ${stats.auditedDsrs} audited`}
             icon={Users}
             variant="blue"
           />
@@ -772,7 +832,7 @@ export default function AdminDashboard() {
           <StatsCard
             title="Stock Issues"
             value={stats.noPackageCount.toString()}
-            subtitle={`${stats.unassignedSold} unassigned sales`}
+            subtitle={`${stats.incompleteSales} incomplete / not scanned sales`}
             icon={PackageX}
             variant="destructive"
           />
@@ -791,6 +851,28 @@ export default function AdminDashboard() {
             variant={alerts.length > 0 ? "warning" : "default"}
           />
         </div>
+
+        <GlassCard className="p-4 md:p-6">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <h2 className="text-lg font-semibold">Recent DSR Audits</h2>
+            <Badge variant="outline" className="bg-amber-500/20 text-amber-500 border-amber-500/30">{stats.auditedDsrs} audited DSRs</Badge>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {recentAudits.length > 0 ? (
+              recentAudits.map((audit) => (
+                <div key={audit.id} className="rounded-xl border border-border/50 p-3">
+                  <div className="font-medium text-sm">{audit.dsrName}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{audit.audit_date}</div>
+                  <Badge className={`mt-3 ${audit.status === 'ok' ? 'bg-green-500/20 text-green-500 border-green-500/30' : 'bg-amber-500/20 text-amber-500 border-amber-500/30'}`}>
+                    {audit.status === 'ok' ? 'OK' : 'Issue'}
+                  </Badge>
+                </div>
+              ))
+            ) : (
+              <div className="text-sm text-muted-foreground">No recent DSR audits in the selected period.</div>
+            )}
+          </div>
+        </GlassCard>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-6">
           {/* Sales Chart - Units Only */}
@@ -892,7 +974,7 @@ export default function AdminDashboard() {
             <GlassCard className="hover:shadow-lg transition-shadow">
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Clock className="h-5 w-5 text-blue-500" />
-                Recent Sales Today
+                Recent Sales
               </h3>
               <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
                 {recentSales.length > 0 ? (
@@ -926,7 +1008,7 @@ export default function AdminDashboard() {
                   ))
                 ) : (
                   <div className="text-center py-4 text-muted-foreground">
-                    No sales recorded today yet
+                    No sales recorded for {salesDateLabel.toLowerCase()}
                   </div>
                 )}
               </div>
@@ -985,13 +1067,15 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                     <div className="w-full bg-muted/50 rounded-full h-2 overflow-hidden" aria-hidden="true">
-                      <div 
-                        className={`h-full rounded-full transition-all duration-500 ease-out ${
-                          tl.conversion >= 70 ? 'bg-green-600' : 
-                          tl.conversion >= 50 ? 'bg-yellow-500' : 
-                          'bg-red-500'
+                      <Progress
+                        value={tl.conversion}
+                        className={`h-2 bg-muted/50 ${
+                          tl.conversion >= 70
+                            ? "[&>[data-slot='progress-indicator']]:bg-green-600"
+                            : tl.conversion >= 50
+                              ? "[&>[data-slot='progress-indicator']]:bg-yellow-500"
+                              : "[&>[data-slot='progress-indicator']]:bg-red-500"
                         }`}
-                        style={{ width: `${tl.conversion}%` }}
                         aria-hidden="true"
                       />
                     </div>
@@ -1033,9 +1117,9 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   <div className="w-full bg-muted rounded-full h-2 overflow-hidden" aria-hidden="true">
-                    <div 
-                      className={`h-full rounded-full transition-all duration-700 ease-out ${item.color}`}
-                      style={{ width: `${item.percentage}%` }}
+                    <Progress
+                      value={item.percentage}
+                      className={`h-2 ${item.color}/15 [&>[data-slot='progress-indicator']]:${item.color}`}
                       aria-hidden="true"
                     />
                   </div>

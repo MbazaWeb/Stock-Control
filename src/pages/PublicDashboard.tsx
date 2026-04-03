@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Package,
   TrendingUp,
@@ -13,6 +13,7 @@ import {
   ShoppingCart,
   Filter,
 } from 'lucide-react';
+import SalesDateFilter from '@/components/SalesDateFilter';
 import { supabase } from '@/integrations/supabase/client';
 import PublicLayout from '@/components/layout/PublicLayout';
 import StatsCard from '@/components/ui/StatsCard';
@@ -38,6 +39,14 @@ import {
   Area,
   AreaChart,
 } from 'recharts';
+import {
+  createSalesDateRange,
+  describeSalesDateRange,
+  getDefaultSalesDateRange,
+  getSalesDatePresetLabel,
+  listSalesDateRangeDays,
+  type SalesDatePreset,
+} from '@/lib/salesDateRange';
 
 interface DashboardStats {
   totalStock: number;
@@ -46,13 +55,14 @@ interface DashboardStats {
   soldThisMonth: number;
   unpaidCount: number;
   noPackageCount: number;
-  unassignedSold: number;
+  incompleteSales: number;
   teamLeaders: number;
   captains: number;
   dsrs: number;
   tlAssignedStock: number;
   tlSoldStock: number;
   tlInHandStock: number;
+  auditedDsrs: number;
   recentActivity: number;
 }
 
@@ -82,7 +92,15 @@ interface RecentSale {
   created_at: string;
 }
 
+interface RecentAudit {
+  id: string;
+  dsrName: string;
+  audit_date: string;
+  status: string;
+}
+
 export default function PublicDashboard() {
+  const defaultSalesDateRange = getDefaultSalesDateRange();
   const [stats, setStats] = useState<DashboardStats>({
     totalStock: 0,
     availableStock: 0,
@@ -90,24 +108,33 @@ export default function PublicDashboard() {
     soldThisMonth: 0,
     unpaidCount: 0,
     noPackageCount: 0,
-    unassignedSold: 0,
+    incompleteSales: 0,
     teamLeaders: 0,
     captains: 0,
     dsrs: 0,
     tlAssignedStock: 0,
     tlSoldStock: 0,
     tlInHandStock: 0,
+    auditedDsrs: 0,
     recentActivity: 0,
   });
 
   const [dailyTrends, setDailyTrends] = useState<DailyTrend[]>([]);
   const [tlStockData, setTlStockData] = useState<TLStockStatus[]>([]);
   const [recentSales, setRecentSales] = useState<RecentSale[]>([]);
+  const [recentAudits, setRecentAudits] = useState<RecentAudit[]>([]);
   const [loading, setLoading] = useState(true);
   const [zones, setZones] = useState<Array<{id: string; name: string}>>([]);
   const [allRegions, setAllRegions] = useState<Array<{id: string; name: string; zone_id: string}>>([]);
   const [zoneFilter, setZoneFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
+  const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
+  const [salesDateFrom, setSalesDateFrom] = useState(defaultSalesDateRange.startDate);
+  const [salesDateTo, setSalesDateTo] = useState(defaultSalesDateRange.endDate);
+
+  const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
+  const salesDateLabel = describeSalesDateRange(salesDateRange);
+  const salesDateTitle = getSalesDatePresetLabel(salesDateRange.preset);
 
   useEffect(() => {
     const fetchFilters = async () => {
@@ -123,13 +150,14 @@ export default function PublicDashboard() {
 
   useEffect(() => { setRegionFilter('all'); }, [zoneFilter]);
 
-  useEffect(() => {
-    fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 2 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [zoneFilter, regionFilter]);
+  const handleSalesDatePresetChange = (preset: SalesDatePreset) => {
+    const nextRange = createSalesDateRange(preset, salesDateFrom, salesDateTo);
+    setSalesDatePreset(preset);
+    setSalesDateFrom(nextRange.startDate);
+    setSalesDateTo(nextRange.endDate);
+  };
 
-  const fetchTLStockData = async () => {
+  const fetchTLStockData = useCallback(async () => {
     try {
       let tlQuery = supabase.from('team_leaders').select('id, name, region_id').order('name');
       if (regionFilter !== 'all') {
@@ -170,11 +198,10 @@ export default function PublicDashboard() {
       console.error('Error fetching TL stock data:', error);
       return [];
     }
-  };
+  }, [allRegions, regionFilter, zoneFilter]);
 
-  const fetchRecentSales = async () => {
+  const fetchRecentSales = useCallback(async () => {
     try {
-      const today = new Date().toISOString().split('T')[0];
       let query = supabase
         .from('sales_records')
         .select(`
@@ -186,7 +213,8 @@ export default function PublicDashboard() {
           customer_name,
           created_at
         `)
-        .eq('sale_date', today)
+        .gte('sale_date', salesDateRange.startDate)
+        .lte('sale_date', salesDateRange.endDate)
         .order('created_at', { ascending: false })
         .limit(5);
 
@@ -208,15 +236,12 @@ export default function PublicDashboard() {
     } catch (error) {
       console.error('Error fetching recent sales:', error);
     }
-  };
+  }, [regionFilter, salesDateRange.endDate, salesDateRange.startDate, zoneFilter]);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
       const now = new Date();
       const todayISO = now.toISOString().split('T')[0];
-      const startOfMonthISO = new Date(now.getFullYear(), now.getMonth(), 1)
-        .toISOString()
-        .split('T')[0];
 
       // Fetch TL stock data first
       const tlStockData = await fetchTLStockData();
@@ -254,52 +279,66 @@ export default function PublicDashboard() {
         inventoryRes,
         availableRes,
         salesTodayRes,
-        salesMonthRes,
+        salesPeriodRes,
         unpaidRes,
         noPackageRes,
-        unassignedRes,
+        incompleteRes,
         tlRes,
         captainRes,
         dsrRes,
+        auditRes,
       ] = await Promise.all([
         invQ(),
         invQ().eq('status', 'available').is('assigned_to_id', null),
         salesQ().eq('sale_date', todayISO),
-        salesQ().gte('sale_date', startOfMonthISO),
-        salesQ().eq('payment_status', 'Unpaid'),
-        salesQ().eq('package_status', 'No Package'),
-        salesQ().is('team_leader_id', null).is('captain_id', null).is('dsr_id', null),
+        salesQ().gte('sale_date', salesDateRange.startDate).lte('sale_date', salesDateRange.endDate),
+        salesQ().eq('payment_status', 'Unpaid').gte('sale_date', salesDateRange.startDate).lte('sale_date', salesDateRange.endDate),
+        salesQ().eq('package_status', 'No Package').gte('sale_date', salesDateRange.startDate).lte('sale_date', salesDateRange.endDate),
+        salesQ().is('dsr_id', null).gte('sale_date', salesDateRange.startDate).lte('sale_date', salesDateRange.endDate),
         tlQ(),
         supabase.from('captains').select('id', { count: 'exact', head: true }),
         supabase.from('dsrs').select('id', { count: 'exact', head: true }),
+        supabase.from('audits').select('id, dsr_id, audit_date, status').eq('audit_target_type', 'dsr').gte('audit_date', salesDateRange.startDate).lte('audit_date', salesDateRange.endDate).order('audit_date', { ascending: false }).limit(5),
       ]);
+
+      const auditDsrIds = Array.from(new Set((auditRes.data || []).map((audit) => audit.dsr_id).filter(Boolean))) as string[];
+      const { data: auditDsrs } = auditDsrIds.length > 0
+        ? await supabase.from('dsrs').select('id, name').in('id', auditDsrIds)
+        : { data: [] as Array<{ id: string; name: string }> };
+      const auditDsrMap = new Map((auditDsrs || []).map((dsr) => [dsr.id, dsr.name]));
 
       setStats({
         totalStock: inventoryRes.count ?? 0,
         availableStock: availableRes.count ?? 0,
         soldToday: salesTodayRes.count ?? 0,
-        soldThisMonth: salesMonthRes.count ?? 0,
+        soldThisMonth: salesPeriodRes.count ?? 0,
         unpaidCount: unpaidRes.count ?? 0,
         noPackageCount: noPackageRes.count ?? 0,
-        unassignedSold: unassignedRes.count ?? 0,
+        incompleteSales: incompleteRes.count ?? 0,
         teamLeaders: tlRes.count ?? 0,
         captains: captainRes.count ?? 0,
         dsrs: dsrRes.count ?? 0,
         tlAssignedStock,
         tlSoldStock,
         tlInHandStock,
+        auditedDsrs: new Set((auditRes.data || []).map((audit) => audit.dsr_id)).size,
         recentActivity: salesTodayRes.count ?? 0,
       });
+      setRecentAudits((auditRes.data || []).map((audit) => ({
+        id: audit.id,
+        dsrName: auditDsrMap.get(audit.dsr_id) || 'Unknown DSR',
+        audit_date: audit.audit_date,
+        status: audit.status,
+      })));
 
       // Fetch recent sales
       await fetchRecentSales();
 
-      // Generate 7-day trend data — single query instead of 7
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-      const startISO = sevenDaysAgo.toISOString().split('T')[0];
-
-      let trendQuery = supabase.from('sales_records').select('sale_date').gte('sale_date', startISO).lte('sale_date', todayISO);
+      let trendQuery = supabase
+        .from('sales_records')
+        .select('sale_date')
+        .gte('sale_date', salesDateRange.startDate)
+        .lte('sale_date', salesDateRange.endDate);
       if (zoneFilter !== 'all') trendQuery = trendQuery.eq('zone_id', zoneFilter);
       if (regionFilter !== 'all') trendQuery = trendQuery.eq('region_id', regionFilter);
       const { data: trendData } = await trendQuery;
@@ -307,17 +346,15 @@ export default function PublicDashboard() {
       const dayCounts: Record<string, number> = {};
       (trendData || []).forEach(r => { dayCounts[r.sale_date] = (dayCounts[r.sale_date] || 0) + 1; });
 
-      const trends: DailyTrend[] = [];
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const iso = d.toISOString().split('T')[0];
-        trends.push({
-          date: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      const trends: DailyTrend[] = listSalesDateRangeDays(salesDateRange).map((iso) => {
+        const date = new Date(`${iso}T00:00:00`);
+
+        return {
+          date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
           units: dayCounts[iso] || 0,
-          dayName: d.toLocaleDateString('en-US', { weekday: 'short' }),
-        });
-      }
+          dayName: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        };
+      });
 
       setDailyTrends(trends);
     } catch (error) {
@@ -325,7 +362,13 @@ export default function PublicDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [allRegions, fetchRecentSales, fetchTLStockData, regionFilter, salesDateRange, zoneFilter]);
+
+  useEffect(() => {
+    fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchDashboardData]);
 
   if (loading) {
     return (
@@ -406,6 +449,14 @@ export default function PublicDashboard() {
                 {(zoneFilter === 'all' ? allRegions : allRegions.filter(r => r.zone_id === zoneFilter)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
               </SelectContent>
             </Select>
+            <SalesDateFilter
+              preset={salesDatePreset}
+              startDate={salesDateFrom}
+              endDate={salesDateTo}
+              onPresetChange={handleSalesDatePresetChange}
+              onStartDateChange={setSalesDateFrom}
+              onEndDateChange={setSalesDateTo}
+            />
           </div>
         </GlassCard>
 
@@ -481,9 +532,9 @@ export default function PublicDashboard() {
             variant="gold" 
           />
           <StatsCard 
-            title="Monthly Units" 
+            title={salesDateTitle} 
             value={stats.soldThisMonth.toString()} 
-            subtitle="Units sold this month" 
+            subtitle={`${salesDateLabel} sales`} 
             icon={BarChart3} 
             variant="blue" 
           />
@@ -502,9 +553,9 @@ export default function PublicDashboard() {
             variant="destructive" 
           />
           <StatsCard 
-            title="Unassigned Sales" 
-            value={stats.unassignedSold.toString()} 
-            subtitle="Need assignment" 
+            title="Incomplete Sales" 
+            value={stats.incompleteSales.toString()} 
+            subtitle="Missing DSR / not scanned" 
             icon={AlertTriangle} 
             variant="warning" 
           />
@@ -530,10 +581,10 @@ export default function PublicDashboard() {
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-primary" />
-                7-Day Sales Trend (Units)
+                Sales Trend (Units)
               </h3>
               <div className="text-sm text-muted-foreground">
-                Total: {dailyTrends.reduce((sum, day) => sum + day.units, 0)} units
+                {salesDateLabel} • {dailyTrends.reduce((sum, day) => sum + day.units, 0)} units
               </div>
             </div>
             <div className="h-64">
@@ -588,7 +639,7 @@ export default function PublicDashboard() {
             <GlassCard className="hover:shadow-lg transition-shadow">
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Clock className="h-5 w-5 text-blue-500" />
-                Recent Sales Today
+                Recent Sales
               </h3>
               <div className="space-y-3 max-h-64 overflow-y-auto pr-2">
                 {recentSales.length > 0 ? (
@@ -622,7 +673,7 @@ export default function PublicDashboard() {
                   ))
                 ) : (
                   <div className="text-center py-4 text-muted-foreground">
-                    No sales recorded today yet
+                    No sales recorded for {salesDateLabel.toLowerCase()}
                   </div>
                 )}
               </div>
@@ -648,11 +699,39 @@ export default function PublicDashboard() {
                   <Badge variant="outline">{stats.dsrs}</Badge>
                 </div>
                 <div className="flex justify-between items-center p-2">
+                  <span className="text-sm">Audited DSRs</span>
+                  <Badge variant="outline" className="bg-amber-500/20 text-amber-500 border-amber-500/30">{stats.auditedDsrs}</Badge>
+                </div>
+                <div className="flex justify-between items-center p-2">
                   <span className="text-sm">Total Sales Team</span>
                   <Badge variant="outline" className="bg-primary/20 text-primary">
                     {stats.teamLeaders + stats.captains + stats.dsrs}
                   </Badge>
                 </div>
+              </div>
+            </GlassCard>
+
+            <GlassCard className="hover:shadow-lg transition-shadow">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Users className="h-5 w-5 text-amber-500" />
+                Recent DSR Audits
+              </h3>
+              <div className="space-y-3">
+                {recentAudits.length > 0 ? (
+                  recentAudits.map((audit) => (
+                    <div key={audit.id} className="flex items-center justify-between rounded-lg border border-border/30 p-3">
+                      <div>
+                        <div className="text-sm font-medium">{audit.dsrName}</div>
+                        <div className="text-xs text-muted-foreground">{audit.audit_date}</div>
+                      </div>
+                      <Badge className={audit.status === 'ok' ? 'bg-green-500/20 text-green-500 border-green-500/30' : 'bg-amber-500/20 text-amber-500 border-amber-500/30'}>
+                        {audit.status === 'ok' ? 'OK' : 'Issue'}
+                      </Badge>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-4 text-muted-foreground">No recent DSR audits</div>
+                )}
               </div>
             </GlassCard>
           </div>
@@ -753,9 +832,9 @@ export default function PublicDashboard() {
                         </div>
                       </div>
                       <div className="w-full bg-muted rounded-full h-2 overflow-hidden" aria-hidden="true">
-                        <div 
-                          className={`h-full rounded-full transition-all duration-700 ease-out ${item.color}`}
-                          style={{ width: `${item.percentage}%` }}
+                        <Progress
+                          value={item.percentage}
+                          className={`h-2 ${item.color}/15 [&>[data-slot='progress-indicator']]:${item.color}`}
                           aria-hidden="true"
                         />
                       </div>
@@ -798,7 +877,7 @@ export default function PublicDashboard() {
                 <div className="flex items-center justify-between p-3 bg-green-500/10 rounded-lg">
                   <div className="flex items-center gap-2">
                     <TrendingUp className="h-4 w-4 text-green-500" />
-                    <span className="text-sm">Monthly Sales</span>
+                    <span className="text-sm">{salesDateTitle}</span>
                   </div>
                   <span className="font-medium text-green-600">{stats.soldThisMonth} units</span>
                 </div>

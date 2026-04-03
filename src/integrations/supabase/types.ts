@@ -52,30 +52,159 @@ export type Database = {
       }
       admin_users: {
         Row: {
+          captain_id: string | null
           created_at: string
+          dsr_id: string | null
           email: string
           id: string
           name: string | null
           role: string
+          team_leader_id: string | null
           user_id: string | null
         }
         Insert: {
+          captain_id?: string | null
           created_at?: string
+          dsr_id?: string | null
           email: string
           id?: string
           name?: string | null
           role?: string
+          team_leader_id?: string | null
           user_id?: string | null
         }
         Update: {
+          captain_id?: string | null
           created_at?: string
+          dsr_id?: string | null
           email?: string
           id?: string
           name?: string | null
           role?: string
+          team_leader_id?: string | null
           user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "admin_users_captain_id_fkey"
+            columns: ["captain_id"]
+            isOneToOne: false
+            referencedRelation: "captains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admin_users_dsr_id_fkey"
+            columns: ["dsr_id"]
+            isOneToOne: false
+            referencedRelation: "dsrs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admin_users_team_leader_id_fkey"
+            columns: ["team_leader_id"]
+            isOneToOne: false
+            referencedRelation: "team_leaders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audits: {
+        Row: {
+          audit_target_type: string
+          audit_date: string
+          audited_by_admin_user_id: string | null
+          audited_by_role: string
+          captain_count: number
+          captain_id: string | null
+          created_at: string
+          dsr_count: number
+          dsr_id: string | null
+          id: string
+          issues: string | null
+          no_package_smartcards: string[]
+          notes: string | null
+          unpaid_smartcards: string[]
+          sales_count: number
+          sold_smartcards: string[]
+          stock_in_hand_smartcards: string[]
+          status: string
+          team_leader_id: string | null
+          total_stock: number
+        }
+        Insert: {
+          audit_target_type: string
+          audit_date?: string
+          audited_by_admin_user_id?: string | null
+          audited_by_role: string
+          captain_count?: number
+          captain_id?: string | null
+          created_at?: string
+          dsr_count?: number
+          dsr_id?: string | null
+          id?: string
+          issues?: string | null
+          no_package_smartcards?: string[]
+          notes?: string | null
+          unpaid_smartcards?: string[]
+          sales_count?: number
+          sold_smartcards?: string[]
+          stock_in_hand_smartcards?: string[]
+          status?: string
+          team_leader_id?: string | null
+          total_stock?: number
+        }
+        Update: {
+          audit_target_type?: string
+          audit_date?: string
+          audited_by_admin_user_id?: string | null
+          audited_by_role?: string
+          captain_count?: number
+          captain_id?: string | null
+          created_at?: string
+          dsr_count?: number
+          dsr_id?: string | null
+          id?: string
+          issues?: string | null
+          no_package_smartcards?: string[]
+          notes?: string | null
+          unpaid_smartcards?: string[]
+          sales_count?: number
+          sold_smartcards?: string[]
+          stock_in_hand_smartcards?: string[]
+          status?: string
+          team_leader_id?: string | null
+          total_stock?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audits_audited_by_admin_user_id_fkey"
+            columns: ["audited_by_admin_user_id"]
+            isOneToOne: false
+            referencedRelation: "admin_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audits_captain_id_fkey"
+            columns: ["captain_id"]
+            isOneToOne: false
+            referencedRelation: "captains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audits_dsr_id_fkey"
+            columns: ["dsr_id"]
+            isOneToOne: false
+            referencedRelation: "dsrs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audits_team_leader_id_fkey"
+            columns: ["team_leader_id"]
+            isOneToOne: false
+            referencedRelation: "team_leaders"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       captains: {
         Row: {
@@ -243,6 +372,8 @@ export type Database = {
           region_id: string | null
           notes: string | null
           approval_status: string
+          submitted_by_admin_user_id: string | null
+          submitted_by_role: string | null
           created_at: string
           updated_at: string
         }
@@ -263,6 +394,8 @@ export type Database = {
           region_id?: string | null
           notes?: string | null
           approval_status?: string
+          submitted_by_admin_user_id?: string | null
+          submitted_by_role?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -283,10 +416,19 @@ export type Database = {
           region_id?: string | null
           notes?: string | null
           approval_status?: string
+          submitted_by_admin_user_id?: string | null
+          submitted_by_role?: string | null
           created_at?: string
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "pending_sales_submitted_by_admin_user_id_fkey"
+            columns: ["submitted_by_admin_user_id"]
+            isOneToOne: false
+            referencedRelation: "admin_users"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "pending_sales_inventory_id_fkey"
             columns: ["inventory_id"]

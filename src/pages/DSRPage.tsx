@@ -1,5 +1,6 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Users, Search, Filter, Eye, Phone, MapPin } from 'lucide-react';
+import SalesDateFilter from '@/components/SalesDateFilter';
 import { supabase } from '@/integrations/supabase/client';
 import PublicLayout from '@/components/layout/PublicLayout';
 import GlassCard from '@/components/ui/GlassCard';
@@ -28,6 +29,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  createSalesDateRange,
+  describeSalesDateRange,
+  getDefaultSalesDateRange,
+  type SalesDatePreset,
+} from '@/lib/salesDateRange';
 
 interface DSRRow {
   id: string;
@@ -50,6 +57,8 @@ interface DSRRow {
   salesCount: number;
   assignedCount: number;
   isActive: boolean;
+  isAudited: boolean;
+  latestAuditDate: string | null;
 }
 
 interface StockItem {
@@ -64,6 +73,7 @@ interface StockItem {
 }
 
 export default function DSRPage() {
+  const defaultSalesDateRange = getDefaultSalesDateRange();
   const [dsrs, setDsrs] = useState<DSRRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,16 +90,25 @@ export default function DSRPage() {
   const [dsrStock, setDsrStock] = useState<StockItem[]>([]);
   const [stockDialogOpen, setStockDialogOpen] = useState(false);
   const [stockLoading, setStockLoading] = useState(false);
+  const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
+  const [salesDateFrom, setSalesDateFrom] = useState(defaultSalesDateRange.startDate);
+  const [salesDateTo, setSalesDateTo] = useState(defaultSalesDateRange.endDate);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
+  const salesDateLabel = describeSalesDateRange(salesDateRange);
 
   useEffect(() => { setRegionFilter('all'); setTlFilter('all'); setCaptainFilter('all'); }, [zoneFilter]);
   useEffect(() => { setTlFilter('all'); setCaptainFilter('all'); }, [regionFilter]);
   useEffect(() => { setCaptainFilter('all'); }, [tlFilter]);
 
-  const fetchData = async () => {
+  const handleSalesDatePresetChange = (preset: SalesDatePreset) => {
+    const nextRange = createSalesDateRange(preset, salesDateFrom, salesDateTo);
+    setSalesDatePreset(preset);
+    setSalesDateFrom(nextRange.startDate);
+    setSalesDateTo(nextRange.endDate);
+  };
+
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       // Fetch reference data in parallel
@@ -118,24 +137,21 @@ export default function DSRPage() {
       const tlMap = new Map(tlsList.map(t => [t.id, t]));
       const captainMap = new Map(captainsList.map(c => [c.id, c]));
 
-      // Get current month range for active status
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-
-      // Fetch sales counts per DSR (all time)
-      const { data: salesData } = await supabase
-        .from('sales_records')
-        .select('dsr_id')
-        .not('dsr_id', 'is', null);
-
-      // Fetch current month sales for active status
-      const { data: monthSalesData } = await supabase
-        .from('sales_records')
-        .select('dsr_id')
-        .not('dsr_id', 'is', null)
-        .gte('sale_date', monthStart)
-        .lte('sale_date', monthEnd);
+      // Fetch sales counts per DSR for the selected period
+      const [{ data: salesData }, { data: auditData }] = await Promise.all([
+        supabase
+          .from('sales_records')
+          .select('dsr_id')
+          .not('dsr_id', 'is', null)
+          .gte('sale_date', salesDateRange.startDate)
+          .lte('sale_date', salesDateRange.endDate),
+        supabase
+          .from('audits')
+          .select('dsr_id, audit_date')
+          .eq('audit_target_type', 'dsr')
+          .gte('audit_date', salesDateRange.startDate)
+          .lte('audit_date', salesDateRange.endDate),
+      ]);
 
       // Fetch assigned stock counts per DSR
       const { data: assignedData } = await supabase
@@ -149,9 +165,9 @@ export default function DSRPage() {
         if (s.dsr_id) salesCountMap.set(s.dsr_id, (salesCountMap.get(s.dsr_id) || 0) + 1);
       });
 
-      // Active DSRs (sold this month)
+      // Active DSRs are those with sales in the selected period
       const activeDSRs = new Set<string>();
-      (monthSalesData || []).forEach(s => {
+      (salesData || []).forEach(s => {
         if (s.dsr_id) activeDSRs.add(s.dsr_id);
       });
 
@@ -159,6 +175,13 @@ export default function DSRPage() {
       const assignedCountMap = new Map<string, number>();
       (assignedData || []).forEach(a => {
         if (a.assigned_to_id) assignedCountMap.set(a.assigned_to_id, (assignedCountMap.get(a.assigned_to_id) || 0) + 1);
+      });
+
+      const latestAuditMap = new Map<string, string>();
+      (auditData || []).forEach((audit) => {
+        if (!audit.dsr_id) return;
+        const current = latestAuditMap.get(audit.dsr_id);
+        if (!current || audit.audit_date > current) latestAuditMap.set(audit.dsr_id, audit.audit_date);
       });
 
       // Build DSR rows with hierarchy
@@ -189,6 +212,8 @@ export default function DSRPage() {
           salesCount: salesCountMap.get(dsr.id) || 0,
           assignedCount: assignedCountMap.get(dsr.id) || 0,
           isActive: activeDSRs.has(dsr.id),
+          isAudited: latestAuditMap.has(dsr.id),
+          latestAuditDate: latestAuditMap.get(dsr.id) || null,
         };
       });
 
@@ -198,7 +223,11 @@ export default function DSRPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [salesDateRange.startDate, salesDateRange.endDate]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const fetchDSRStock = async (dsr: DSRRow) => {
     setSelectedDSR(dsr);
@@ -210,6 +239,8 @@ export default function DSRPage() {
         .from('sales_records')
         .select('smartcard_number, serial_number, stock_type, sale_date, customer_name, payment_status, package_status')
         .eq('dsr_id', dsr.id)
+        .gte('sale_date', salesDateRange.startDate)
+        .lte('sale_date', salesDateRange.endDate)
         .order('sale_date', { ascending: false });
 
       // Get assigned inventory (in-hand)
@@ -314,6 +345,7 @@ export default function DSRPage() {
 
   const totalSales = useMemo(() => filteredDSRs.reduce((acc, d) => acc + d.salesCount, 0), [filteredDSRs]);
   const activeDSRCount = useMemo(() => filteredDSRs.filter(d => d.isActive).length, [filteredDSRs]);
+  const auditedDSRCount = useMemo(() => filteredDSRs.filter(d => d.isAudited).length, [filteredDSRs]);
 
   if (loading) {
     return (
@@ -339,7 +371,7 @@ export default function DSRPage() {
               </span>
             </h1>
             <p className="text-xs md:text-base text-muted-foreground mt-0.5">
-              All Direct Sales Representatives — filter, search and view sales
+              All Direct Sales Representatives — {salesDateLabel} sales and activity
             </p>
           </div>
           <div className="flex gap-2 text-sm">
@@ -351,6 +383,9 @@ export default function DSRPage() {
             </Badge>
             <Badge variant="outline" className="bg-purple-500/10 text-purple-500 border-purple-500/30">
               {totalSales} Sales
+            </Badge>
+            <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/30">
+              {auditedDSRCount} Audited
             </Badge>
           </div>
         </div>
@@ -401,6 +436,15 @@ export default function DSRPage() {
               </SelectContent>
             </Select>
 
+            <SalesDateFilter
+              preset={salesDatePreset}
+              startDate={salesDateFrom}
+              endDate={salesDateTo}
+              onPresetChange={handleSalesDatePresetChange}
+              onStartDateChange={setSalesDateFrom}
+              onEndDateChange={setSalesDateTo}
+            />
+
             <div className="relative flex-1 min-w-[180px]">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
@@ -443,6 +487,11 @@ export default function DSRPage() {
                           )}
                           {dsr.has_fss_account && (
                             <Badge className="text-[10px] ml-1 bg-green-500/20 text-green-500 border-green-500/30 px-1 py-0">FSS</Badge>
+                          )}
+                          {dsr.isAudited && (
+                            <Badge className="text-[10px] ml-1 bg-amber-500/20 text-amber-500 border-amber-500/30 px-1 py-0">
+                              Audited{dsr.latestAuditDate ? ` ${dsr.latestAuditDate}` : ''}
+                            </Badge>
                           )}
                         </div>
                       </TableCell>
@@ -516,7 +565,7 @@ export default function DSRPage() {
                 {selectedDSR?.name} — Stock & Sales
               </DialogTitle>
               <DialogDescription>
-                {dsrStock.filter(s => s.status === 'Sold').length} sold • {dsrStock.filter(s => s.status === 'In Hand').length} in hand
+                {salesDateLabel} • {dsrStock.filter(s => s.status === 'Sold').length} sold • {dsrStock.filter(s => s.status === 'In Hand').length} in hand
               </DialogDescription>
             </DialogHeader>
 

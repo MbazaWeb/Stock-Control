@@ -2,16 +2,15 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
+import { useAuth } from "@/hooks/auth-context";
 import { lazy, Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import PWAInstallBanner from "@/components/PWAInstallBanner";
 
-// Eager-load the public landing page for fast first paint
-import PublicDashboard from "./pages/PublicDashboard";
-
-// Lazy-load all other pages
+// Lazy-load page modules so route trees initialize consistently.
+const PublicDashboard = lazy(() => import("./pages/PublicDashboard"));
 const SearchStock = lazy(() => import("./pages/SearchStock"));
 const UnpaidPage = lazy(() => import("./pages/UnpaidPage"));
 const NoPackagePage = lazy(() => import("./pages/NoPackagePage"));
@@ -32,6 +31,18 @@ const SalesManagementPage = lazy(() => import("./pages/admin/SalesManagementPage
 const RegionalAdminPage = lazy(() => import("./pages/admin/RegionalAdminPage"));
 const AdminSearchPage = lazy(() => import("./pages/admin/AdminSearchPage"));
 const SalesApprovalPage = lazy(() => import("./pages/admin/SalesApprovalPage"));
+const TLDashboardPage = lazy(() => import("./pages/admin/TLDashboardPage"));
+const TSMDashboardPage = lazy(() => import("./pages/admin/TSMDashboardPage"));
+const TLTeamPage = lazy(() => import("./pages/admin/TLTeamPage"));
+const TLAssignedStockPage = lazy(() => import("./pages/admin/TLAssignedStockPage"));
+const TSMStockPage = lazy(() => import("./pages/admin/TSMStockPage"));
+const TLSalesRecordsPage = lazy(() => import("./pages/admin/TLSalesRecordsPage"));
+const TLUnpaidPage = lazy(() => import("./pages/admin/TLUnpaidPage"));
+const TLNoPackagePage = lazy(() => import("./pages/admin/TLNoPackagePage"));
+const ManagerAuditPage = lazy(() => import("./pages/admin/ManagerAuditPage"));
+const AdminAuditPage = lazy(() => import("./pages/admin/AdminAuditPage"));
+const ManagerRecordSalePage = lazy(() => import("./pages/admin/ManagerRecordSalePage"));
+const ManagerSaleRequestsPage = lazy(() => import("./pages/admin/ManagerSaleRequestsPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -55,6 +66,61 @@ const PageLoader = () => (
   </div>
 );
 
+const AdminHomeRoute = () => {
+  const { isTeamLeader, isCaptain, isDSR, isTSM } = useAuth();
+
+  if (isTSM) return <TSMDashboardPage />;
+  if (isTeamLeader || isCaptain) return <TLDashboardPage />;
+  if (isDSR) return <TLSalesRecordsPage />;
+  return <AdminDashboard />;
+};
+
+function StandardAdminRoute({ children }: { children: JSX.Element }) {
+  const { isTeamLeader, isCaptain, isDSR } = useAuth();
+  return isTeamLeader || isCaptain || isDSR ? <Navigate to="/admin" replace /> : children;
+}
+
+function AdminUserRoute({ children }: { children: JSX.Element }) {
+  const { isAdmin } = useAuth();
+  return isAdmin ? children : <Navigate to="/admin/login" replace />;
+}
+
+function ManagerOnlyRoute({ children }: { children: JSX.Element }) {
+  const { isManager } = useAuth();
+  return isManager ? children : <Navigate to="/admin" replace />;
+}
+
+function TeamLeaderOnlyRoute({ children }: { children: JSX.Element }) {
+  const { isTeamLeader } = useAuth();
+  return isTeamLeader ? children : <Navigate to="/admin" replace />;
+}
+
+function TsmOnlyRoute({ children }: { children: JSX.Element }) {
+  const { isTSM } = useAuth();
+  return isTSM ? children : <Navigate to="/admin" replace />;
+}
+
+function DsrOnlyRoute({ children }: { children: JSX.Element }) {
+  const { isDSR } = useAuth();
+  return isDSR ? children : <Navigate to="/admin" replace />;
+}
+
+function NonDsrRoute({ children }: { children: JSX.Element }) {
+  const { isDSR } = useAuth();
+  return isDSR ? <Navigate to="/admin" replace /> : children;
+}
+
+const AuditPageRoute = () => {
+  const { isManager } = useAuth();
+  return isManager ? <ManagerAuditPage /> : <AdminAuditPage />;
+};
+
+const RecordSalesRoute = () => {
+  const { isManager, isDSR } = useAuth();
+  if (isDSR) return <Navigate to="/admin" replace />;
+  return isManager ? <ManagerRecordSalePage /> : <RecordSalePage />;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -62,7 +128,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <PWAInstallBanner />
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Suspense fallback={<PageLoader />}>
             <Routes>
             {/* Public Routes */}
@@ -78,19 +144,28 @@ const App = () => (
             <Route path="/admin/login" element={<AdminLogin />} />
             
             {/* Admin Protected Routes */}
-            <Route path="/admin" element={<AdminDashboard />} />
-            <Route path="/admin/inventory" element={<InventoryPage />} />
-            <Route path="/admin/assign-stock" element={<AssignStockPage />} />
-            <Route path="/admin/record-sales" element={<RecordSalePage />} />
-            <Route path="/admin/sales-team" element={<SalesTeamPage />} />
-            <Route path="/admin/zones-regions" element={<ZonesRegionsPage />} />
-            <Route path="/admin/reports" element={<SalesReportPage />} />
-            <Route path="/admin/sales-management" element={<SalesManagementPage />} />
-            <Route path="/admin/search" element={<AdminSearchPage />} />
-            <Route path="/admin/global-import" element={<GlobalImportPage />} />
-            <Route path="/admin/sales-approval" element={<SalesApprovalPage />} />
-            <Route path="/admin/regional-admins" element={<RegionalAdminPage />} />
-            <Route path="/admin/settings" element={<SettingsPage />} />
+            <Route path="/admin" element={<AdminHomeRoute />} />
+            <Route path="/admin/inventory" element={<StandardAdminRoute><InventoryPage /></StandardAdminRoute>} />
+            <Route path="/admin/assign-stock" element={<StandardAdminRoute><AssignStockPage /></StandardAdminRoute>} />
+            <Route path="/admin/record-sales" element={<NonDsrRoute><RecordSalesRoute /></NonDsrRoute>} />
+            <Route path="/admin/sales-team" element={<StandardAdminRoute><SalesTeamPage /></StandardAdminRoute>} />
+            <Route path="/admin/zones-regions" element={<StandardAdminRoute><ZonesRegionsPage /></StandardAdminRoute>} />
+            <Route path="/admin/reports" element={<StandardAdminRoute><SalesReportPage /></StandardAdminRoute>} />
+            <Route path="/admin/sales-management" element={<StandardAdminRoute><SalesManagementPage /></StandardAdminRoute>} />
+            <Route path="/admin/search" element={<StandardAdminRoute><AdminSearchPage /></StandardAdminRoute>} />
+            <Route path="/admin/global-import" element={<StandardAdminRoute><GlobalImportPage /></StandardAdminRoute>} />
+            <Route path="/admin/sales-approval" element={<StandardAdminRoute><SalesApprovalPage /></StandardAdminRoute>} />
+            <Route path="/admin/regional-admins" element={<StandardAdminRoute><RegionalAdminPage /></StandardAdminRoute>} />
+            <Route path="/admin/settings" element={<AdminUserRoute><SettingsPage /></AdminUserRoute>} />
+            <Route path="/admin/tsm-team" element={<TsmOnlyRoute><SalesTeamPage /></TsmOnlyRoute>} />
+            <Route path="/admin/tsm-stock" element={<TsmOnlyRoute><TSMStockPage /></TsmOnlyRoute>} />
+            <Route path="/admin/tl-team" element={<ManagerOnlyRoute><TLTeamPage /></ManagerOnlyRoute>} />
+            <Route path="/admin/tl-stock" element={<ManagerOnlyRoute><TLAssignedStockPage /></ManagerOnlyRoute>} />
+            <Route path="/admin/tl-sales" element={<DsrOnlyRoute><TLSalesRecordsPage /></DsrOnlyRoute>} />
+            <Route path="/admin/tl-unpaid" element={<TeamLeaderOnlyRoute><TLUnpaidPage /></TeamLeaderOnlyRoute>} />
+            <Route path="/admin/tl-no-package" element={<TeamLeaderOnlyRoute><TLNoPackagePage /></TeamLeaderOnlyRoute>} />
+            <Route path="/admin/sale-requests" element={<ManagerOnlyRoute><ManagerSaleRequestsPage /></ManagerOnlyRoute>} />
+            <Route path="/admin/audits" element={<NonDsrRoute><AuditPageRoute /></NonDsrRoute>} />
             
             <Route path="*" element={<NotFound />} />
           </Routes>

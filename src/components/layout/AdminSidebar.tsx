@@ -18,9 +18,10 @@ import {
   Menu,
   X,
   ClipboardCheck,
+  CreditCard,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/auth-context';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -32,26 +33,50 @@ interface MenuItem {
   superAdminOnly?: boolean;
 }
 
-const menuItems: MenuItem[] = [
+const adminMenuItems: MenuItem[] = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/inventory', label: 'Inventory', icon: Package },
   { href: '/admin/assign-stock', label: 'Assign Stock', icon: UploadCloud },
   { href: '/admin/record-sales', label: 'Record Sales', icon: BarChart3 },
   { href: '/admin/sales-management', label: 'Sales Management', icon: ClipboardList },
   { href: '/admin/sales-approval', label: 'Sales Approval', icon: ClipboardCheck },
+  { href: '/admin/audits', label: 'Audits', icon: ClipboardCheck },
   { href: '/admin/search', label: 'Admin Search', icon: Search },
   { href: '/admin/global-import', label: 'Global Import', icon: FileUp },
   { href: '/admin/sales-team', label: 'Sales Team', icon: Users },
   { href: '/admin/zones-regions', label: 'Zones & Regions', icon: MapPin },
   { href: '/admin/reports', label: 'Sales Reports', icon: BarChart3 },
-  { href: '/admin/regional-admins', label: 'Regional Admins', icon: Shield, superAdminOnly: true },
+  { href: '/admin/regional-admins', label: 'Users Page', icon: Shield },
+  { href: '/admin/settings', label: 'Settings', icon: Settings },
+];
+
+const teamLeaderMenuItems: MenuItem[] = [
+  { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/tl-team', label: 'My Team', icon: Users },
+  { href: '/admin/tl-stock', label: 'My Stock', icon: Package },
+  { href: '/admin/record-sales', label: 'Record Sales', icon: BarChart3 },
+  { href: '/admin/sale-requests', label: 'My Requests', icon: CreditCard },
+  { href: '/admin/audits', label: 'Audit Report', icon: ClipboardCheck },
+  { href: '/admin/settings', label: 'Settings', icon: Settings },
+];
+
+const tsmMenuItems: MenuItem[] = [
+  { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/admin/tsm-team', label: 'My Team', icon: Users },
+  { href: '/admin/tsm-stock', label: 'View Stock', icon: Package },
+  { href: '/admin/audits', label: 'Audit Report', icon: ClipboardCheck },
+  { href: '/admin/settings', label: 'Settings', icon: Settings },
+];
+
+const dsrMenuItems: MenuItem[] = [
+  { href: '/admin', label: 'My Sales', icon: ClipboardList },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
 ];
 
 export default function AdminSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut, adminUser, isSuperAdmin } = useAuth();
+  const { signOut, adminUser, isSuperAdmin, isTSM, isTeamLeader, isCaptain, isDSR, currentTeamLeader, currentCaptain, currentDSR } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -76,9 +101,31 @@ export default function AdminSidebar() {
     navigate('/admin/login');
   };
 
-  const visibleMenuItems = menuItems.filter(item => 
-    !item.superAdminOnly || isSuperAdmin
-  );
+  const visibleMenuItems = (isDSR ? dsrMenuItems : (isTSM ? tsmMenuItems : (isTeamLeader || isCaptain ? teamLeaderMenuItems : adminMenuItems))).filter((item) => !item.superAdminOnly || isSuperAdmin);
+
+  const roleLabel = adminUser?.role === 'super_admin'
+    ? 'Super Admin'
+    : adminUser?.role === 'regional_admin'
+      ? 'Regional Admin'
+      : adminUser?.role === 'tsm'
+        ? 'Territory Manager'
+      : adminUser?.role === 'team_leader'
+        ? 'Team Leader'
+        : adminUser?.role === 'captain'
+          ? 'Captain'
+          : adminUser?.role === 'dsr'
+            ? 'DSR'
+            : 'Admin';
+
+  const displayIdentity = isTeamLeader
+    ? currentTeamLeader?.name || adminUser?.name || adminUser?.email
+    : isTSM
+      ? adminUser?.name || adminUser?.email
+    : isCaptain
+      ? currentCaptain?.name || adminUser?.name || adminUser?.email
+      : isDSR
+        ? currentDSR?.name || adminUser?.name || adminUser?.email
+        : adminUser?.name || adminUser?.email;
 
   // Mobile top bar
   if (isMobile) {
@@ -172,9 +219,9 @@ export default function AdminSidebar() {
               {adminUser && (
                 <div className="mb-3 px-3">
                   <p className="text-xs text-muted-foreground">Signed in as</p>
-                  <p className="text-sm font-medium truncate">{adminUser.email}</p>
+                  <p className="text-sm font-medium truncate">{displayIdentity}</p>
                   <span className="badge-gold text-xs mt-1 inline-block">
-                    {adminUser.role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                    {roleLabel}
                   </span>
                 </div>
               )}
@@ -266,9 +313,9 @@ export default function AdminSidebar() {
           {!collapsed && adminUser && (
             <div className="mb-3 px-3">
               <p className="text-xs text-muted-foreground">Signed in as</p>
-              <p className="text-sm font-medium truncate">{adminUser.email}</p>
+              <p className="text-sm font-medium truncate">{displayIdentity}</p>
               <span className="badge-gold text-xs mt-1 inline-block">
-                {adminUser.role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                {roleLabel}
               </span>
             </div>
           )}

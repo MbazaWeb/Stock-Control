@@ -283,10 +283,10 @@ USING (public.is_super_admin(auth.uid()));
 CREATE POLICY "Admins can view own region assignments"
 ON public.admin_region_assignments FOR SELECT
 USING (
-  admin_id IN (
+  public.is_super_admin(auth.uid())
+  OR admin_id IN (
     SELECT id FROM public.admin_users 
-    WHERE user_id = auth.uid() 
-       OR email = (SELECT email FROM auth.users WHERE id = auth.uid())
+    WHERE user_id = auth.uid()
   )
 );
 

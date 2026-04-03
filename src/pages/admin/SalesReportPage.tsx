@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   BarChart3, Download, FileText, Filter, Package, CreditCard, Users,
   CheckCircle2, XCircle, Clock, RefreshCw, Calendar,
@@ -6,6 +6,7 @@ import {
 // ExcelJS, jsPDF, autoTable loaded dynamically in export functions
 import { supabase } from '@/integrations/supabase/client';
 import AdminLayout from '@/components/layout/AdminLayout';
+import SalesDateFilter from '@/components/SalesDateFilter';
 import GlassCard from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +20,15 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/auth-context';
+import {
+  createSalesDateRange,
+  describeSalesDateRange,
+  getDefaultSalesDateRange,
+  isDateWithinSalesRange,
+  type SalesDatePreset,
+} from '@/lib/salesDateRange';
+import { getSaleCompletionLabel } from '@/lib/saleCompletion';
 
 interface InventoryItem {
   id: string;
@@ -68,11 +77,13 @@ interface Summary {
   salesUnpaid: number;
   salesPackaged: number;
   salesNoPackage: number;
+  salesIncomplete: number;
 }
 
 interface NameMap { [id: string]: string }
 
 export default function SalesReportPage() {
+  const defaultSalesDateRange = getDefaultSalesDateRange();
   const { toast } = useToast();
   const { isRegionalAdmin, assignedRegionIds } = useAuth();
 
@@ -87,20 +98,27 @@ export default function SalesReportPage() {
   const [tlFilter, setTlFilter] = useState('all');
   const [captainFilter, setCaptainFilter] = useState('all');
   const [dsrFilter, setDsrFilter] = useState('all');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [datePreset, setDatePreset] = useState<SalesDatePreset>('this_month');
+  const [dateFrom, setDateFrom] = useState(defaultSalesDateRange.startDate);
+  const [dateTo, setDateTo] = useState(defaultSalesDateRange.endDate);
 
   // Lookup data
   const [zones, setZones] = useState<Array<{ id: string; name: string }>>([]);
   const [regions, setRegions] = useState<Array<{ id: string; name: string }>>([]);
   const [teamLeaders, setTeamLeaders] = useState<Array<{ id: string; name: string }>>([]);
   const [captains, setCaptains] = useState<Array<{ id: string; name: string }>>([]);
-  const [dsrs, setDsrs] = useState<Array<{ id: string; name: string }>>([]);
+  const [dsrs, setDsrs] = useState<Array<{ id: string; name: string; dsr_number: string | null }>>([]);
   const [tlNames, setTlNames] = useState<NameMap>({});
   const [captainNames, setCaptainNames] = useState<NameMap>({});
   const [dsrNames, setDsrNames] = useState<NameMap>({});
+  const [dsrNumbers, setDsrNumbers] = useState<NameMap>({});
   const [zoneNames, setZoneNames] = useState<NameMap>({});
   const [regionNames, setRegionNames] = useState<NameMap>({});
+
+  const salesDateRange = useMemo(
+    () => createSalesDateRange(datePreset, dateFrom, dateTo),
+    [datePreset, dateFrom, dateTo]
+  );
 
   const fetchLookups = useCallback(async () => {
     const [zRes, rRes, tlRes, cRes, dRes] = await Promise.all([
@@ -108,7 +126,7 @@ export default function SalesReportPage() {
       supabase.from('regions').select('id, name').order('name'),
       supabase.from('team_leaders').select('id, name').order('name'),
       supabase.from('captains').select('id, name').order('name'),
-      supabase.from('dsrs').select('id, name').order('name'),
+      supabase.from('dsrs').select('id, name, dsr_number').order('name'),
     ]);
 
     const z = zRes.data || [];
@@ -131,6 +149,7 @@ export default function SalesReportPage() {
     setTlNames(Object.fromEntries(tl.map(x => [x.id, x.name])));
     setCaptainNames(Object.fromEntries(c.map(x => [x.id, x.name])));
     setDsrNames(Object.fromEntries(d.map(x => [x.id, x.name])));
+    setDsrNumbers(Object.fromEntries(d.map(x => [x.id, x.dsr_number || '-'])));
   }, [isRegionalAdmin, assignedRegionIds]);
 
   const fetchData = useCallback(async () => {
@@ -166,8 +185,7 @@ export default function SalesReportPage() {
     if (tlFilter !== 'all' && !(item.assigned_to_type === 'team_leader' && item.assigned_to_id === tlFilter)) return false;
     if (captainFilter !== 'all' && !(item.assigned_to_type === 'captain' && item.assigned_to_id === captainFilter)) return false;
     if (dsrFilter !== 'all' && !(item.assigned_to_type === 'dsr' && item.assigned_to_id === dsrFilter)) return false;
-    if (dateFrom && item.created_at < dateFrom) return false;
-    if (dateTo && item.created_at > dateTo + 'T23:59:59') return false;
+    if (!isDateWithinSalesRange(item.created_at, salesDateRange)) return false;
     return true;
   });
 
@@ -177,8 +195,7 @@ export default function SalesReportPage() {
     if (tlFilter !== 'all' && item.team_leader_id !== tlFilter) return false;
     if (captainFilter !== 'all' && item.captain_id !== captainFilter) return false;
     if (dsrFilter !== 'all' && item.dsr_id !== dsrFilter) return false;
-    if (dateFrom && item.sale_date < dateFrom) return false;
-    if (dateTo && item.sale_date > dateTo) return false;
+    if (!isDateWithinSalesRange(item.sale_date, salesDateRange)) return false;
     return true;
   });
 
@@ -197,6 +214,7 @@ export default function SalesReportPage() {
     salesUnpaid: filteredSales.filter(s => s.payment_status === 'Unpaid').length,
     salesPackaged: filteredSales.filter(s => s.package_status === 'Packaged').length,
     salesNoPackage: filteredSales.filter(s => s.package_status === 'No Package').length,
+    salesIncomplete: filteredSales.filter(s => !s.dsr_id).length,
   };
 
   const resetFilters = () => {
@@ -205,8 +223,17 @@ export default function SalesReportPage() {
     setTlFilter('all');
     setCaptainFilter('all');
     setDsrFilter('all');
-    setDateFrom('');
-    setDateTo('');
+    const nextRange = getDefaultSalesDateRange();
+    setDatePreset('this_month');
+    setDateFrom(nextRange.startDate);
+    setDateTo(nextRange.endDate);
+  };
+
+  const handleSalesDatePresetChange = (preset: SalesDatePreset) => {
+    const nextRange = createSalesDateRange(preset, dateFrom, dateTo);
+    setDatePreset(preset);
+    setDateFrom(nextRange.startDate);
+    setDateTo(nextRange.endDate);
   };
 
   const getFilterLabel = () => {
@@ -216,8 +243,7 @@ export default function SalesReportPage() {
     if (tlFilter !== 'all') parts.push(`TL: ${tlNames[tlFilter]}`);
     if (captainFilter !== 'all') parts.push(`Captain: ${captainNames[captainFilter]}`);
     if (dsrFilter !== 'all') parts.push(`DSR: ${dsrNames[dsrFilter]}`);
-    if (dateFrom) parts.push(`From: ${dateFrom}`);
-    if (dateTo) parts.push(`To: ${dateTo}`);
+    parts.push(`Sales Period: ${describeSalesDateRange(salesDateRange)}`);
     return parts.length > 0 ? parts.join(' | ') : 'All Data';
   };
 
@@ -245,6 +271,7 @@ export default function SalesReportPage() {
     ws1.addRow({ metric: 'Sales - Unpaid', count: summary.salesUnpaid });
     ws1.addRow({ metric: 'Sales - Packaged', count: summary.salesPackaged });
     ws1.addRow({ metric: 'Sales - No Package', count: summary.salesNoPackage });
+    ws1.addRow({ metric: 'Sales - Incomplete / Not Scanned', count: summary.salesIncomplete });
 
     // Inventory sheet
     const ws2 = wb.addWorksheet('Inventory');
@@ -288,6 +315,8 @@ export default function SalesReportPage() {
       { header: 'TL', key: 'tl', width: 18 },
       { header: 'Captain', key: 'captain', width: 18 },
       { header: 'DSR', key: 'dsr', width: 18 },
+      { header: 'D Number', key: 'dsrNumber', width: 14 },
+      { header: 'Completion', key: 'completion', width: 24 },
       { header: 'Zone', key: 'zone', width: 16 },
       { header: 'Region', key: 'region', width: 16 },
     ];
@@ -298,6 +327,8 @@ export default function SalesReportPage() {
         tl: s.team_leader_id ? tlNames[s.team_leader_id] || '-' : '-',
         captain: s.captain_id ? captainNames[s.captain_id] || '-' : '-',
         dsr: s.dsr_id ? dsrNames[s.dsr_id] || '-' : '-',
+        dsrNumber: s.dsr_id ? dsrNumbers[s.dsr_id] || '-' : '-',
+        completion: getSaleCompletionLabel(s.dsr_id),
         zone: s.zone_id ? zoneNames[s.zone_id] || '-' : '-',
         region: s.region_id ? regionNames[s.region_id] || '-' : '-',
       });
@@ -346,6 +377,7 @@ export default function SalesReportPage() {
         ['Sales - Unpaid', String(summary.salesUnpaid)],
         ['Sales - Packaged', String(summary.salesPackaged)],
         ['Sales - No Package', String(summary.salesNoPackage)],
+        ['Sales - Incomplete / Not Scanned', String(summary.salesIncomplete)],
       ],
       theme: 'grid',
       headStyles: { fillColor: [59, 130, 246] },
@@ -379,13 +411,15 @@ export default function SalesReportPage() {
     doc.text('Sales Records', 14, 15);
     autoTable(doc, {
       startY: 20,
-      head: [['Smartcard', 'Serial', 'Customer', 'Date', 'Payment', 'Package', 'TL', 'Captain', 'DSR']],
+      head: [['Smartcard', 'Serial', 'Customer', 'Date', 'Payment', 'Package', 'TL', 'Captain', 'DSR', 'D Number', 'Completion']],
       body: filteredSales.slice(0, 200).map(s => [
         s.smartcard_number, s.serial_number, s.customer_name || '-', s.sale_date,
         s.payment_status, s.package_status,
         s.team_leader_id ? tlNames[s.team_leader_id] || '-' : '-',
         s.captain_id ? captainNames[s.captain_id] || '-' : '-',
         s.dsr_id ? dsrNames[s.dsr_id] || '-' : '-',
+        s.dsr_id ? dsrNumbers[s.dsr_id] || '-' : '-',
+        getSaleCompletionLabel(s.dsr_id),
       ]),
       theme: 'grid',
       headStyles: { fillColor: [59, 130, 246] },
@@ -494,12 +528,15 @@ export default function SalesReportPage() {
               </Select>
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Date From</label>
-              <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1 block">Date To</label>
-              <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+              <label className="text-sm font-medium mb-1 block">Sales Period</label>
+              <SalesDateFilter
+                preset={datePreset}
+                startDate={dateFrom}
+                endDate={dateTo}
+                onPresetChange={handleSalesDatePresetChange}
+                onStartDateChange={setDateFrom}
+                onEndDateChange={setDateTo}
+              />
             </div>
           </div>
           {getFilterLabel() !== 'All Data' && (
@@ -538,6 +575,7 @@ export default function SalesReportPage() {
                 <SummaryCard label="Sales Paid" value={summary.salesPaid} icon={CheckCircle2} color="bg-emerald-500/10 border-emerald-500/30" />
                 <SummaryCard label="Sales Unpaid" value={summary.salesUnpaid} icon={Clock} color="bg-red-500/10 border-red-500/30" />
                 <SummaryCard label="Sales No Package" value={summary.salesNoPackage} icon={XCircle} color="bg-orange-500/10 border-orange-500/30" />
+                <SummaryCard label="Sales Incomplete" value={summary.salesIncomplete} icon={Clock} color="bg-amber-500/10 border-amber-500/30" />
               </div>
             </GlassCard>
           </TabsContent>
@@ -650,6 +688,8 @@ export default function SalesReportPage() {
                       <TableHead>TL</TableHead>
                       <TableHead>Captain</TableHead>
                       <TableHead>DSR</TableHead>
+                      <TableHead>D Number</TableHead>
+                      <TableHead>Completion</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -662,7 +702,7 @@ export default function SalesReportPage() {
                         </TableRow>
                       ))
                     ) : filteredSales.length === 0 ? (
-                      <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">No sales match filters</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">No sales match filters</TableCell></TableRow>
                     ) : (
                       filteredSales.slice(0, 100).map(sale => (
                         <TableRow key={sale.id}>
@@ -685,6 +725,8 @@ export default function SalesReportPage() {
                           <TableCell>{sale.team_leader_id ? tlNames[sale.team_leader_id] || '-' : '-'}</TableCell>
                           <TableCell>{sale.captain_id ? captainNames[sale.captain_id] || '-' : '-'}</TableCell>
                           <TableCell>{sale.dsr_id ? dsrNames[sale.dsr_id] || '-' : '-'}</TableCell>
+                          <TableCell>{sale.dsr_id ? dsrNumbers[sale.dsr_id] || '-' : '-'}</TableCell>
+                          <TableCell><Badge variant="outline">{getSaleCompletionLabel(sale.dsr_id)}</Badge></TableCell>
                         </TableRow>
                       ))
                     )}

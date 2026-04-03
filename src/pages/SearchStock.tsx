@@ -37,7 +37,16 @@ import {
 } from '@/components/ui/select';
 // ExcelJS loaded dynamically in handleExport
 import ScannerDialog from '@/components/ScannerDialog';
+import SalesDateFilter from '@/components/SalesDateFilter';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  createSalesDateRange,
+  describeSalesDateRange,
+  getDefaultSalesDateRange,
+  isDateWithinSalesRange,
+  type SalesDatePreset,
+} from '@/lib/salesDateRange';
+import { getSaleCompletionBadgeClass, getSaleCompletionLabel } from '@/lib/saleCompletion';
 
 interface SearchResult {
   id: string;
@@ -61,6 +70,7 @@ interface SearchResult {
   created_at: string;
   source: 'inventory' | 'sale';
   pending_sale?: boolean;
+  dsr_id?: string | null;
 }
 
 interface FilterOptions {
@@ -73,6 +83,7 @@ interface FilterOptions {
 }
 
 export default function SearchStock() {
+  const defaultSalesDateRange = getDefaultSalesDateRange();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchType, setSearchType] = useState<'smartcard' | 'serial' | 'person'>('smartcard');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -90,6 +101,19 @@ export default function SearchStock() {
   const [zones, setZones] = useState<Array<{id: string, name: string}>>([]);
   const [regions, setRegions] = useState<Array<{id: string, name: string}>>([]);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
+  const [salesDateFrom, setSalesDateFrom] = useState(defaultSalesDateRange.startDate);
+  const [salesDateTo, setSalesDateTo] = useState(defaultSalesDateRange.endDate);
+
+  const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
+  const salesDateLabel = describeSalesDateRange(salesDateRange);
+
+  const handleSalesDatePresetChange = (preset: SalesDatePreset) => {
+    const nextRange = createSalesDateRange(preset, salesDateFrom, salesDateTo);
+    setSalesDatePreset(preset);
+    setSalesDateFrom(nextRange.startDate);
+    setSalesDateTo(nextRange.endDate);
+  };
 
   const loadZonesAndRegions = async () => {
     try {
@@ -167,13 +191,15 @@ export default function SearchStock() {
         const { data: salesData } = await supabase
           .from('sales_records')
           .select(`
-            id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at,
+            id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, dsr_id,
             team_leaders:team_leader_id(name),
             captains:captain_id(name),
             dsrs:dsr_id(name),
             zones:zone_id(id, name),
             regions:region_id(id, name)
           `)
+          .gte('sale_date', salesDateRange.startDate)
+          .lte('sale_date', salesDateRange.endDate)
           .ilike(searchType === 'smartcard' ? 'smartcard_number' : 'serial_number', `%${searchQuery}%`)
           .limit(100);
 
@@ -213,6 +239,7 @@ export default function SearchStock() {
           sale_date: item.sale_date,
           customer_name: item.customer_name,
           notes: item.notes,
+          dsr_id: item.dsr_id,
           zone: item.zones,
           region: item.regions,
           team_leader: item.team_leaders,
@@ -248,6 +275,8 @@ export default function SearchStock() {
               supabase.from('sales_records')
                 .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zones:zone_id(id, name), regions:region_id(id, name)`)
                 .in('team_leader_id', tlIds)
+                .gte('sale_date', salesDateRange.startDate)
+                .lte('sale_date', salesDateRange.endDate)
                 .limit(50)
             );
           }
@@ -256,6 +285,8 @@ export default function SearchStock() {
               supabase.from('sales_records')
                 .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zones:zone_id(id, name), regions:region_id(id, name)`)
                 .in('captain_id', captainIds)
+                .gte('sale_date', salesDateRange.startDate)
+                .lte('sale_date', salesDateRange.endDate)
                 .limit(50)
             );
           }
@@ -264,6 +295,8 @@ export default function SearchStock() {
               supabase.from('sales_records')
                 .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zones:zone_id(id, name), regions:region_id(id, name)`)
                 .in('dsr_id', dsrIds)
+                .gte('sale_date', salesDateRange.startDate)
+                .lte('sale_date', salesDateRange.endDate)
                 .limit(50)
             );
           }
@@ -321,6 +354,7 @@ export default function SearchStock() {
             sale_date: item.sale_date,
             customer_name: item.customer_name,
             notes: item.notes,
+            dsr_id: item.dsr_id,
             zone: item.zones,
             region: item.regions,
             team_leader: item.team_leader_id ? { name: tlNames[item.team_leader_id] || 'Unknown' } : null,
@@ -416,6 +450,8 @@ export default function SearchStock() {
       filtered = filtered.filter(item => item.region?.name === filters.region);
     }
 
+    filtered = filtered.filter((item) => item.source === 'inventory' || !item.sale_date || isDateWithinSalesRange(item.sale_date, salesDateRange));
+
     setFilteredResults(filtered);
   };
 
@@ -446,6 +482,7 @@ export default function SearchStock() {
       'Team Leader': item.team_leader?.name || '-',
       'Captain': item.captain?.name || '-',
       'DSR': item.dsr?.name || '-',
+      'Completion': item.source === 'sale' ? getSaleCompletionLabel(item.dsr_id) : '-',
       'Customer Name': item.customer_name || '-',
       'Sale Date': item.sale_date || '-',
       'Notes': item.notes || '-',
@@ -595,7 +632,7 @@ export default function SearchStock() {
               </span>
             </h1>
             <p className="text-xs md:text-base text-muted-foreground">
-              Find inventory and sales records
+              Find inventory and sales records • sales default to {salesDateLabel.toLowerCase()}
             </p>
           </div>
           {filteredResults.length > 0 && (
@@ -671,6 +708,14 @@ export default function SearchStock() {
                 )}
               </Button>
             </div>
+            <SalesDateFilter
+              preset={salesDatePreset}
+              startDate={salesDateFrom}
+              endDate={salesDateTo}
+              onPresetChange={handleSalesDatePresetChange}
+              onStartDateChange={setSalesDateFrom}
+              onEndDateChange={setSalesDateTo}
+            />
           </form>
         </GlassCard>
 
@@ -834,7 +879,7 @@ export default function SearchStock() {
                 <Search className="h-16 w-16 mx-auto text-muted-foreground/50" />
                 <p className="text-muted-foreground mt-4">
                   {results.length === 0 
-                    ? "No records found matching your search"
+                    ? `No records found matching your search for ${salesDateLabel.toLowerCase()}`
                     : "No records match your filters. Try different filter options."
                   }
                 </p>
@@ -934,7 +979,7 @@ export default function SearchStock() {
                     )}
 
                     {/* Team Assignment (for sales) */}
-                    {item.source === 'sale' && (item.team_leader || item.captain || item.dsr) && (
+                    {item.source === 'sale' && (
                       <div className="mb-4 p-3 bg-secondary/5 rounded-lg">
                         <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
                           <Users className="h-4 w-4" />
@@ -944,6 +989,10 @@ export default function SearchStock() {
                           {item.team_leader && getTeamBadge('tl', item.team_leader.name)}
                           {item.captain && getTeamBadge('captain', item.captain.name)}
                           {item.dsr && getTeamBadge('dsr', item.dsr.name)}
+                          <Badge className={getSaleCompletionBadgeClass(item.dsr_id)}>
+                            {getSaleCompletionLabel(item.dsr_id)}
+                          </Badge>
+                          {!item.dsr && <span className="text-xs text-amber-600">No DSR attached yet</span>}
                         </div>
                       </div>
                     )}

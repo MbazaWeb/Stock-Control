@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import AdminLayout from '@/components/layout/AdminLayout';
+import SalesDateFilter from '@/components/SalesDateFilter';
 import GlassCard from '@/components/ui/GlassCard';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -52,9 +53,17 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/auth-context';
 import { Skeleton } from '@/components/ui/skeleton';
 // ExcelJS loaded dynamically in handleExport
+import {
+  createSalesDateRange,
+  describeSalesDateRange,
+  getDefaultSalesDateRange,
+  isDateWithinSalesRange,
+  type SalesDatePreset,
+} from '@/lib/salesDateRange';
+import { getSaleCompletionBadgeClass, getSaleCompletionLabel } from '@/lib/saleCompletion';
 
 interface SearchResult {
   id: string;
@@ -79,6 +88,7 @@ interface SearchResult {
   region_id?: string | null;
   created_at: string;
   source: 'inventory' | 'sale';
+  dsr_id?: string | null;
 }
 
 interface FilterOptions {
@@ -138,6 +148,7 @@ interface SalesRow {
 }
 
 export default function AdminSearchPage() {
+  const defaultSalesDateRange = getDefaultSalesDateRange();
   const { toast } = useToast();
   const { isRegionalAdmin, assignedRegionIds } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
@@ -177,6 +188,19 @@ export default function AdminSearchPage() {
   const [editStatus, setEditStatus] = useState('');
 
   const [updating, setUpdating] = useState(false);
+  const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
+  const [salesDateFrom, setSalesDateFrom] = useState(defaultSalesDateRange.startDate);
+  const [salesDateTo, setSalesDateTo] = useState(defaultSalesDateRange.endDate);
+
+  const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
+  const salesDateLabel = describeSalesDateRange(salesDateRange);
+
+  const handleSalesDatePresetChange = (preset: SalesDatePreset) => {
+    const nextRange = createSalesDateRange(preset, salesDateFrom, salesDateTo);
+    setSalesDatePreset(preset);
+    setSalesDateFrom(nextRange.startDate);
+    setSalesDateTo(nextRange.endDate);
+  };
 
   const loadZonesAndRegions = useCallback(async () => {
     try {
@@ -289,6 +313,8 @@ export default function AdminSearchPage() {
             zones:zone_id(id, name),
             regions:region_id(id, name)
           `)
+          .gte('sale_date', salesDateRange.startDate)
+          .lte('sale_date', salesDateRange.endDate)
           .ilike(searchType === 'smartcard' ? 'smartcard_number' : 'serial_number', `%${searchQuery}%`)
           .limit(100);
 
@@ -370,6 +396,8 @@ export default function AdminSearchPage() {
             let q = supabase.from('sales_records')
               .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zone_id, region_id, zones:zone_id(id, name), regions:region_id(id, name)`)
               .in('team_leader_id', tlIds)
+              .gte('sale_date', salesDateRange.startDate)
+              .lte('sale_date', salesDateRange.endDate)
               .limit(50);
             if (isRegionalAdmin && assignedRegionIds.length > 0) q = q.in('region_id', assignedRegionIds);
             salesPromises.push(q);
@@ -386,6 +414,8 @@ export default function AdminSearchPage() {
             let q = supabase.from('sales_records')
               .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zone_id, region_id, zones:zone_id(id, name), regions:region_id(id, name)`)
               .in('captain_id', captainIds)
+              .gte('sale_date', salesDateRange.startDate)
+              .lte('sale_date', salesDateRange.endDate)
               .limit(50);
             if (isRegionalAdmin && assignedRegionIds.length > 0) q = q.in('region_id', assignedRegionIds);
             salesPromises.push(q);
@@ -402,6 +432,8 @@ export default function AdminSearchPage() {
             let q = supabase.from('sales_records')
               .select(`id, smartcard_number, serial_number, stock_type, payment_status, package_status, sale_date, customer_name, notes, created_at, team_leader_id, captain_id, dsr_id, zone_id, region_id, zones:zone_id(id, name), regions:region_id(id, name)`)
               .in('dsr_id', dsrIds)
+              .gte('sale_date', salesDateRange.startDate)
+              .lte('sale_date', salesDateRange.endDate)
               .limit(50);
             if (isRegionalAdmin && assignedRegionIds.length > 0) q = q.in('region_id', assignedRegionIds);
             salesPromises.push(q);
@@ -439,6 +471,7 @@ export default function AdminSearchPage() {
             region: item.regions,
             zone_id: item.zone_id,
             region_id: item.region_id,
+            dsr_id: item.dsr_id,
             team_leader: item.team_leader_id ? { name: tlNames[item.team_leader_id] || 'Unknown' } : null,
             captain: item.captain_id ? { name: captainNames[item.captain_id] || 'Unknown' } : null,
             dsr: item.dsr_id ? { name: dsrNames[item.dsr_id] || 'Unknown' } : null,
@@ -498,6 +531,7 @@ export default function AdminSearchPage() {
     if (filters.package_status !== 'all') filtered = filtered.filter(item => item.package_status === filters.package_status);
     if (filters.zone !== 'all') filtered = filtered.filter(item => item.zone?.name === filters.zone);
     if (filters.region !== 'all') filtered = filtered.filter(item => item.region?.name === filters.region);
+    filtered = filtered.filter((item) => item.source === 'inventory' || !item.sale_date || isDateWithinSalesRange(item.sale_date, salesDateRange));
     setFilteredResults(filtered);
   };
 
@@ -732,6 +766,7 @@ export default function AdminSearchPage() {
       'Package Status': item.package_status,
       'Assigned To Type': item.assigned_to_type || (item.status === 'available' ? 'Not Assigned' : '-'),
       'Assigned To': item.assigned_to_name || item.team_leader?.name || item.captain?.name || item.dsr?.name || '-',
+      'Completion': item.source === 'sale' ? getSaleCompletionLabel(item.dsr_id) : '-',
       'Zone': item.zone?.name || '-',
       'Region': item.region?.name || '-',
       'Customer Name': item.customer_name || '-',
@@ -867,6 +902,14 @@ export default function AdminSearchPage() {
                 )}
               </Button>
             </div>
+            <SalesDateFilter
+              preset={salesDatePreset}
+              startDate={salesDateFrom}
+              endDate={salesDateTo}
+              onPresetChange={handleSalesDatePresetChange}
+              onStartDateChange={setSalesDateFrom}
+              onEndDateChange={setSalesDateTo}
+            />
           </form>
         </GlassCard>
 
@@ -1004,7 +1047,7 @@ export default function AdminSearchPage() {
             {filteredResults.length === 0 ? (
               <GlassCard className="text-center py-12">
                 <Search className="h-16 w-16 mx-auto text-muted-foreground/50" />
-                <p className="text-muted-foreground mt-4">No records found matching your search</p>
+                <p className="text-muted-foreground mt-4">No records found matching your search for {salesDateLabel.toLowerCase()}</p>
               </GlassCard>
             ) : (
               <div className="grid gap-4">
@@ -1052,11 +1095,15 @@ export default function AdminSearchPage() {
                             </div>
                           )}
 
-                          {item.source === 'sale' && (item.team_leader || item.captain || item.dsr) && (
+                          {item.source === 'sale' && (
                             <div className="mb-3 flex flex-wrap gap-2">
                               {item.team_leader && getTeamBadge('tl', item.team_leader.name)}
                               {item.captain && getTeamBadge('captain', item.captain.name)}
                               {item.dsr && getTeamBadge('dsr', item.dsr.name)}
+                              <Badge className={getSaleCompletionBadgeClass(item.dsr_id)}>
+                                {getSaleCompletionLabel(item.dsr_id)}
+                              </Badge>
+                              {!item.dsr && <span className="text-xs text-amber-600">No DSR attached yet</span>}
                             </div>
                           )}
 

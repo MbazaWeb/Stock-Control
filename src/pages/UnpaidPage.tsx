@@ -1,5 +1,6 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { CreditCard, Search, Eye, Calendar, Phone, User, Package, Users, Filter } from 'lucide-react';
+import SalesDateFilter from '@/components/SalesDateFilter';
 import { supabase } from '@/integrations/supabase/client';
 import PublicLayout from '@/components/layout/PublicLayout';
 import GlassCard from '@/components/ui/GlassCard';
@@ -29,6 +30,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  createSalesDateRange,
+  describeSalesDateRange,
+  getDefaultSalesDateRange,
+  type SalesDatePreset,
+} from '@/lib/salesDateRange';
+import { getSaleCompletionBadgeClass, getSaleCompletionLabel } from '@/lib/saleCompletion';
 
 interface UnpaidSale {
   id: string;
@@ -40,6 +48,7 @@ interface UnpaidSale {
   sale_date: string;
   package_status: string;
   notes: string | null;
+  dsr_id: string | null;
   team_leader: { name: string } | null;
   captain: { name: string } | null;
   dsr: { name: string } | null;
@@ -58,6 +67,7 @@ interface SaleDetail {
   sale_date: string;
   package_status: string;
   notes: string | null;
+  dsr_id: string | null;
   team_leader: { name: string } | null;
   captain: { name: string } | null;
   dsr: { name: string } | null;
@@ -66,7 +76,45 @@ interface SaleDetail {
   created_at: string;
 }
 
+interface RelatedLocation {
+  id: string;
+  name: string;
+}
+
+interface UnpaidSaleRow {
+  id: string;
+  smartcard_number: string;
+  serial_number: string;
+  stock_type: string;
+  customer_name: string | null;
+  customer_phone: string | null;
+  sale_date: string;
+  package_status: string;
+  notes: string | null;
+  created_at: string;
+  dsr_id: string | null;
+  team_leaders: { name: string } | null;
+  captains: { name: string } | null;
+  dsrs: { name: string } | null;
+  zones: RelatedLocation | null;
+  regions: RelatedLocation | null;
+}
+
+const TL_COLORS = [
+  'bg-purple-500/20 text-purple-500 border-purple-500/30',
+  'bg-indigo-500/20 text-indigo-500 border-indigo-500/30',
+  'bg-pink-500/20 text-pink-500 border-pink-500/30',
+  'bg-orange-500/20 text-orange-500 border-orange-500/30',
+  'bg-teal-500/20 text-teal-500 border-teal-500/30',
+  'bg-cyan-500/20 text-cyan-500 border-cyan-500/30',
+  'bg-rose-500/20 text-rose-500 border-rose-500/30',
+  'bg-amber-500/20 text-amber-500 border-amber-500/30',
+  'bg-lime-500/20 text-lime-500 border-lime-500/30',
+  'bg-fuchsia-500/20 text-fuchsia-500 border-fuchsia-500/30',
+];
+
 export default function UnpaidPage() {
+  const defaultSalesDateRange = getDefaultSalesDateRange();
   const [sales, setSales] = useState<UnpaidSale[]>([]);
   const [filteredSales, setFilteredSales] = useState<UnpaidSale[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -77,10 +125,12 @@ export default function UnpaidPage() {
   const [regions, setRegions] = useState<Array<{id: string; name: string; zone_id: string}>>([]);
   const [zoneFilter, setZoneFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
+  const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
+  const [salesDateFrom, setSalesDateFrom] = useState(defaultSalesDateRange.startDate);
+  const [salesDateTo, setSalesDateTo] = useState(defaultSalesDateRange.endDate);
 
-  useEffect(() => {
-    fetchUnpaidSales();
-  }, []);
+  const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
+  const salesDateLabel = describeSalesDateRange(salesDateRange);
 
   useEffect(() => { setRegionFilter('all'); }, [zoneFilter]);
 
@@ -100,12 +150,19 @@ export default function UnpaidPage() {
           s.region?.name.toLowerCase().includes(query)
       );
     }
-    if (zoneFilter !== 'all') result = result.filter(s => (s.zone as any)?.id === zoneFilter);
-    if (regionFilter !== 'all') result = result.filter(s => (s.region as any)?.id === regionFilter);
+    if (zoneFilter !== 'all') result = result.filter((s) => s.zone?.name && zones.find((zone) => zone.name === s.zone?.name)?.id === zoneFilter);
+    if (regionFilter !== 'all') result = result.filter((s) => s.region?.name && regions.find((region) => region.name === s.region?.name)?.id === regionFilter);
     setFilteredSales(result);
-  }, [searchQuery, sales, zoneFilter, regionFilter]);
+  }, [searchQuery, sales, zoneFilter, regionFilter, zones, regions]);
 
-  const fetchUnpaidSales = async () => {
+  const handleSalesDatePresetChange = (preset: SalesDatePreset) => {
+    const nextRange = createSalesDateRange(preset, salesDateFrom, salesDateTo);
+    setSalesDatePreset(preset);
+    setSalesDateFrom(nextRange.startDate);
+    setSalesDateTo(nextRange.endDate);
+  };
+
+  const fetchUnpaidSales = useCallback(async () => {
     try {
       const [salesQuery, zonesRes, regionsRes] = await Promise.all([
         supabase
@@ -121,6 +178,7 @@ export default function UnpaidPage() {
             package_status,
             notes,
             created_at,
+            dsr_id,
             team_leaders:team_leader_id(name),
             captains:captain_id(name),
             dsrs:dsr_id(name),
@@ -128,6 +186,8 @@ export default function UnpaidPage() {
             regions:region_id(id, name)
           `)
           .eq('payment_status', 'Unpaid')
+          .gte('sale_date', salesDateRange.startDate)
+          .lte('sale_date', salesDateRange.endDate)
           .order('created_at', { ascending: false }),
         supabase.from('zones').select('id, name').order('name'),
         supabase.from('regions').select('id, name, zone_id').order('name'),
@@ -140,7 +200,7 @@ export default function UnpaidPage() {
       const error = salesQuery.error;
 
       if (!error && data) {
-        const formattedData = data.map((item: any) => ({
+        const formattedData = (data as UnpaidSaleRow[]).map((item) => ({
           id: item.id,
           smartcard_number: item.smartcard_number,
           serial_number: item.serial_number,
@@ -150,6 +210,7 @@ export default function UnpaidPage() {
           sale_date: item.sale_date,
           package_status: item.package_status,
           notes: item.notes,
+          dsr_id: item.dsr_id,
           team_leader: item.team_leaders,
           captain: item.captains,
           dsr: item.dsrs,
@@ -165,7 +226,11 @@ export default function UnpaidPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [salesDateRange.endDate, salesDateRange.startDate]);
+
+  useEffect(() => {
+    fetchUnpaidSales();
+  }, [fetchUnpaidSales]);
 
   const viewSaleDetails = (sale: UnpaidSale) => {
     setSelectedSale({
@@ -178,6 +243,7 @@ export default function UnpaidPage() {
       sale_date: sale.sale_date,
       package_status: sale.package_status,
       notes: sale.notes,
+      dsr_id: sale.dsr_id,
       team_leader: sale.team_leader,
       captain: sale.captain,
       dsr: sale.dsr,
@@ -217,19 +283,6 @@ export default function UnpaidPage() {
     return `${Math.floor(diffDays / 30)} months ago`;
   };
 
-  const TL_COLORS = [
-    'bg-purple-500/20 text-purple-500 border-purple-500/30',
-    'bg-indigo-500/20 text-indigo-500 border-indigo-500/30',
-    'bg-pink-500/20 text-pink-500 border-pink-500/30',
-    'bg-orange-500/20 text-orange-500 border-orange-500/30',
-    'bg-teal-500/20 text-teal-500 border-teal-500/30',
-    'bg-cyan-500/20 text-cyan-500 border-cyan-500/30',
-    'bg-rose-500/20 text-rose-500 border-rose-500/30',
-    'bg-amber-500/20 text-amber-500 border-amber-500/30',
-    'bg-lime-500/20 text-lime-500 border-lime-500/30',
-    'bg-fuchsia-500/20 text-fuchsia-500 border-fuchsia-500/30',
-  ];
-
   const tlColorMap = useMemo(() => {
     const map = new Map<string, string>();
     const uniqueTLs = [...new Set(sales.map(s => s.team_leader?.name).filter(Boolean))] as string[];
@@ -267,7 +320,7 @@ export default function UnpaidPage() {
               </span>
             </h1>
             <p className="text-xs md:text-base text-muted-foreground mt-0.5">
-              {filteredSales.length} stock item{filteredSales.length !== 1 ? 's' : ''} pending payment • View Only
+              {filteredSales.length} stock item{filteredSales.length !== 1 ? 's' : ''} pending payment • {salesDateLabel}
             </p>
           </div>
           <Badge className="badge-warning text-sm md:text-lg py-1 md:py-2 px-3 md:px-4 self-start">
@@ -323,6 +376,14 @@ export default function UnpaidPage() {
                 {(zoneFilter === 'all' ? regions : regions.filter(r => r.zone_id === zoneFilter)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
               </SelectContent>
             </Select>
+            <SalesDateFilter
+              preset={salesDatePreset}
+              startDate={salesDateFrom}
+              endDate={salesDateTo}
+              onPresetChange={handleSalesDatePresetChange}
+              onStartDateChange={setSalesDateFrom}
+              onEndDateChange={setSalesDateTo}
+            />
           </div>
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
@@ -346,7 +407,7 @@ export default function UnpaidPage() {
             <div className="p-12 text-center">
               <CreditCard className="h-16 w-16 mx-auto text-muted-foreground/50" />
               <p className="text-muted-foreground mt-4">
-                {searchQuery ? 'No unpaid stock found matching your search' : 'No unpaid stock found'}
+                {searchQuery ? 'No unpaid stock found matching your search' : `No unpaid stock found for ${salesDateLabel.toLowerCase()}`}
               </p>
             </div>
           ) : (
@@ -427,6 +488,9 @@ export default function UnpaidPage() {
                           {sale.team_leader && getTeamBadge('tl', sale.team_leader.name)}
                           {sale.captain && getTeamBadge('captain', sale.captain.name)}
                           {sale.dsr && getTeamBadge('dsr', sale.dsr.name)}
+                          <Badge className={getSaleCompletionBadgeClass(sale.dsr_id)}>
+                            {getSaleCompletionLabel(sale.dsr_id)}
+                          </Badge>
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
@@ -548,6 +612,15 @@ export default function UnpaidPage() {
                         <span className="text-sm">DSR</span>
                         <span className="font-medium">{selectedSale.dsr.name}</span>
                       </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">Completion</span>
+                      <Badge className={getSaleCompletionBadgeClass(selectedSale.dsr_id)}>
+                        {getSaleCompletionLabel(selectedSale.dsr_id)}
+                      </Badge>
+                    </div>
+                    {!selectedSale.dsr && (
+                      <div className="text-xs text-amber-600">No DSR attached yet, so this sale is still incomplete / not scanned.</div>
                     )}
                   </div>
                 </div>

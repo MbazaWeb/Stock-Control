@@ -26,17 +26,18 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/auth-context';
 import { supabase } from '@/integrations/supabase/client';
 // ExcelJS loaded dynamically in handleExportAllData
 
 export default function SettingsPage() {
   const { toast } = useToast();
-  const { adminUser } = useAuth();
+  const { adminUser, isTeamLeader, isCaptain, isDSR, isTSM } = useAuth();
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const canManageData = !(isTeamLeader || isCaptain || isDSR || isTSM);
 
   // Settings state
   const [settings, setSettings] = useState({
@@ -122,6 +123,20 @@ export default function SettingsPage() {
     }
   };
 
+  const roleLabel = adminUser?.role === 'super_admin'
+    ? 'Super Admin'
+    : adminUser?.role === 'regional_admin'
+      ? 'Regional Admin'
+      : adminUser?.role === 'tsm'
+        ? 'Territory Manager'
+      : adminUser?.role === 'team_leader'
+        ? 'Team Leader'
+        : adminUser?.role === 'captain'
+          ? 'Captain'
+          : adminUser?.role === 'dsr'
+            ? 'DSR'
+            : 'Admin';
+
   return (
     <AdminLayout>
       <div className="space-y-3 md:space-y-6 animate-fade-in">
@@ -136,9 +151,9 @@ export default function SettingsPage() {
         </div>
 
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 max-w-lg">
+          <TabsList className={`grid w-full max-w-lg ${canManageData ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="data">Data</TabsTrigger>
+            {canManageData && <TabsTrigger value="data">Data</TabsTrigger>}
             <TabsTrigger value="account">Account</TabsTrigger>
           </TabsList>
 
@@ -192,7 +207,7 @@ export default function SettingsPage() {
           </TabsContent>
 
           {/* Data Management */}
-          <TabsContent value="data">
+          {canManageData && <TabsContent value="data">
             <div className="grid gap-6">
               <GlassCard>
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -250,7 +265,7 @@ export default function SettingsPage() {
                 </div>
               </GlassCard>
             </div>
-          </TabsContent>
+          </TabsContent>}
 
           {/* Account Settings */}
           <TabsContent value="account">
@@ -271,7 +286,7 @@ export default function SettingsPage() {
                   <div>
                     <Label>Role</Label>
                     <Input
-                      value={adminUser?.role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                      value={roleLabel}
                       disabled
                       className="glass-input bg-muted/50"
                     />

@@ -37,8 +37,19 @@ import {
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/auth-context';
 import { supabase } from '@/integrations/supabase/client';
+import SalesDateFilter from '@/components/SalesDateFilter';
+import {
+  createSalesDateRange,
+  describeSalesDateRange,
+  getDefaultSalesDateRange,
+  type SalesDatePreset,
+} from '@/lib/salesDateRange';
+import {
+  getSaleCompletionBadgeClass,
+  getSaleCompletionLabel,
+} from '@/lib/saleCompletion';
 
 interface PendingSale {
   id: string;
@@ -55,7 +66,7 @@ interface PendingSale {
   created_at: string;
   team_leader?: { name: string } | null;
   captain?: { name: string } | null;
-  dsr?: { name: string } | null;
+  dsr?: { name: string; dsr_number?: string | null } | null;
   zone?: { name: string } | null;
   region?: { name: string } | null;
 }
@@ -63,11 +74,18 @@ interface PendingSale {
 export default function SalesApprovalPage() {
   const { toast } = useToast();
   const { isRegionalAdmin, assignedRegionIds } = useAuth();
+  const defaultSalesDateRange = getDefaultSalesDateRange();
   const [loading, setLoading] = useState(true);
   const [pendingSales, setPendingSales] = useState<PendingSale[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [processing, setProcessing] = useState<string | null>(null);
   const [detailItem, setDetailItem] = useState<PendingSale | null>(null);
+  const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
+  const [salesDateFrom, setSalesDateFrom] = useState(defaultSalesDateRange.startDate);
+  const [salesDateTo, setSalesDateTo] = useState(defaultSalesDateRange.endDate);
+
+  const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
+  const salesDateLabel = describeSalesDateRange(salesDateRange);
 
   const fetchPendingSales = useCallback(async () => {
     setLoading(true);
@@ -78,11 +96,13 @@ export default function SalesApprovalPage() {
           *,
           team_leaders:team_leader_id(name),
           captains:captain_id(name),
-          dsrs:dsr_id(name),
+          dsrs:dsr_id(name, dsr_number),
           zones:zone_id(name),
           regions:region_id(name)
         `)
         .eq('approval_status', 'pending')
+        .gte('sale_date', salesDateRange.startDate)
+        .lte('sale_date', salesDateRange.endDate)
         .order('created_at', { ascending: false });
 
       if (isRegionalAdmin && assignedRegionIds.length > 0) {
@@ -107,11 +127,18 @@ export default function SalesApprovalPage() {
     } finally {
       setLoading(false);
     }
-  }, [isRegionalAdmin, assignedRegionIds]);
+  }, [assignedRegionIds, isRegionalAdmin, salesDateRange.endDate, salesDateRange.startDate]);
 
   useEffect(() => {
     fetchPendingSales();
   }, [fetchPendingSales]);
+
+  const handleSalesDatePresetChange = (preset: SalesDatePreset) => {
+    const nextRange = createSalesDateRange(preset, salesDateFrom, salesDateTo);
+    setSalesDatePreset(preset);
+    setSalesDateFrom(nextRange.startDate);
+    setSalesDateTo(nextRange.endDate);
+  };
 
   const handleApprove = async (sale: PendingSale) => {
     setProcessing(sale.id);
@@ -184,7 +211,7 @@ export default function SalesApprovalPage() {
       // 5. Mark pending sale as approved
       await supabase.from('pending_sales').update({ approval_status: 'approved' }).eq('id', sale.id);
 
-      toast({ title: 'Approved!', description: `Sale for ${sale.smartcard_number} has been approved and recorded.` });
+      toast({ title: 'Approved!', description: `Sale for ${sale.smartcard_number} has been approved and recorded${rawSale.dsr_id ? '.' : ' as incomplete / not scanned.'}` });
       fetchPendingSales();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to approve sale';
@@ -248,12 +275,21 @@ export default function SalesApprovalPage() {
                 Sales Approval
               </span>
             </h1>
-            <p className="text-xs md:text-sm text-muted-foreground">Review and approve sale requests from public submissions</p>
+            <p className="text-xs md:text-sm text-muted-foreground">Review and approve sale requests from public submissions for {salesDateLabel.toLowerCase()}</p>
           </div>
           <Badge className="bg-yellow-500/20 text-yellow-600 border-yellow-500/30 text-sm px-3 py-1">
             <Clock className="h-4 w-4 mr-1" /> {pendingSales.length} Pending
           </Badge>
         </div>
+
+        <SalesDateFilter
+          preset={salesDatePreset}
+          startDate={salesDateFrom}
+          endDate={salesDateTo}
+          onPresetChange={handleSalesDatePresetChange}
+          onStartDateChange={setSalesDateFrom}
+          onEndDateChange={setSalesDateTo}
+        />
 
         {/* Search */}
         <GlassCard>
@@ -274,7 +310,7 @@ export default function SalesApprovalPage() {
             <div className="text-center py-12">
               <CheckCircle2 className="h-12 w-12 mx-auto text-green-500 mb-3" />
               <h3 className="text-lg font-medium">No Pending Sales</h3>
-              <p className="text-sm text-muted-foreground">All sale requests have been reviewed</p>
+              <p className="text-sm text-muted-foreground">No pending sale requests found for {salesDateLabel.toLowerCase()}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -289,6 +325,7 @@ export default function SalesApprovalPage() {
                     <TableHead>Payment</TableHead>
                     <TableHead className="hidden lg:table-cell">Package</TableHead>
                     <TableHead className="hidden lg:table-cell">Team</TableHead>
+                    <TableHead className="hidden lg:table-cell">Completion</TableHead>
                     <TableHead className="hidden lg:table-cell">Location</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -322,7 +359,12 @@ export default function SalesApprovalPage() {
                       <TableCell className="hidden lg:table-cell text-xs">
                         {sale.team_leader?.name && <div className="flex items-center gap-1"><Shield className="h-3 w-3" />{sale.team_leader.name}</div>}
                         {sale.captain?.name && <div className="flex items-center gap-1"><UserPlus className="h-3 w-3" />{sale.captain.name}</div>}
-                        {sale.dsr?.name && <div className="flex items-center gap-1"><User className="h-3 w-3" />{sale.dsr.name}</div>}
+                        {sale.dsr?.name ? <div className="flex items-center gap-1"><User className="h-3 w-3" />{sale.dsr.name}{sale.dsr.dsr_number ? ` (${sale.dsr.dsr_number})` : ''}</div> : <div className="text-amber-600">No DSR attached</div>}
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        <Badge className={getSaleCompletionBadgeClass(sale.dsr?.name)}>
+                          {getSaleCompletionLabel(sale.dsr?.name)}
+                        </Badge>
                       </TableCell>
                       <TableCell className="hidden lg:table-cell text-xs">
                         {sale.zone?.name && <div>{sale.zone.name}</div>}
@@ -383,7 +425,7 @@ export default function SalesApprovalPage() {
                 </div>
                 {detailItem.team_leader?.name && <div className="flex items-center gap-1"><Shield className="h-3 w-3" />TL: {detailItem.team_leader.name}</div>}
                 {detailItem.captain?.name && <div className="flex items-center gap-1"><UserPlus className="h-3 w-3" />Captain: {detailItem.captain.name}</div>}
-                {detailItem.dsr?.name && <div className="flex items-center gap-1"><User className="h-3 w-3" />DSR: {detailItem.dsr.name}</div>}
+                {detailItem.dsr?.name ? <div className="flex items-center gap-1"><User className="h-3 w-3" />DSR: {detailItem.dsr.name}{detailItem.dsr.dsr_number ? ` (${detailItem.dsr.dsr_number})` : ''}</div> : <div className="text-amber-600">Incomplete / not scanned: no DSR attached yet</div>}
                 {detailItem.zone?.name && <div className="flex items-center gap-1"><MapPin className="h-3 w-3" />{detailItem.zone.name} {detailItem.region?.name && `/ ${detailItem.region.name}`}</div>}
                 {detailItem.notes && <div><span className="text-muted-foreground text-xs">Notes</span><div>{detailItem.notes}</div></div>}
               </div>

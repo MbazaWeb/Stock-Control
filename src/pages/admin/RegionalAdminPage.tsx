@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import {
   Users,
   Plus,
@@ -9,8 +10,10 @@ import {
   Search,
   RefreshCw,
   Check,
-  X,
+  KeyRound,
+  UserCircle2,
 } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import AdminLayout from '@/components/layout/AdminLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
@@ -19,6 +22,7 @@ import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -44,19 +48,28 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/auth-context';
 import { supabase } from '@/integrations/supabase/client';
-import { useNavigate } from 'react-router-dom';
+import type { Database } from '@/integrations/supabase/types';
 
-interface AdminUser {
+type UserRole = 'regional_admin' | 'tsm' | 'team_leader' | 'captain' | 'dsr';
+
+interface ManagedUser {
   id: string;
   user_id: string | null;
   email: string;
   name: string | null;
-  role: string;
+  role: UserRole;
   created_at: string;
+  team_leader_id: string | null;
+  captain_id: string | null;
+  dsr_id: string | null;
   assigned_regions?: Array<{ id: string; name: string }>;
+  team_leader?: { id: string; name: string; phone: string | null; region_id: string | null; region_name: string | null } | null;
+  captain?: { id: string; name: string; phone: string | null; team_leader_id: string | null; team_leader_name: string | null } | null;
+  dsr?: { id: string; name: string; phone: string | null; captain_id: string | null; captain_name: string | null; team_leader_id: string | null; team_leader_name: string | null } | null;
 }
 
 interface Region {
@@ -66,537 +79,1283 @@ interface Region {
   zones?: { name: string } | null;
 }
 
+interface TeamLeaderOption {
+  id: string;
+  name: string;
+  phone: string | null;
+  region_id: string | null;
+  regions?: { name: string } | null;
+}
+
+interface CaptainOption {
+  id: string;
+  name: string;
+  phone: string | null;
+  team_leader_id: string | null;
+}
+
+interface DsrOption {
+  id: string;
+  name: string;
+  phone: string | null;
+  captain_id: string | null;
+}
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+const ephemeralStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+};
+
+const createEphemeralSupabaseClient = () =>
+  createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storage: ephemeralStorage,
+      storageKey: 'stocky-managed-user-auth',
+    },
+  });
+const managedAuthClient = createEphemeralSupabaseClient();
+
+const getRequestErrorMessage = (error: unknown, fallback: string) => {
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    const requestError = error as { message: string; details?: string | null; hint?: string | null; code?: string | null };
+
+    if (requestError.code === '23514' && requestError.message.includes('admin_users_role_check')) {
+      return 'The database still rejects one or more managed roles. Apply the latest admin_users role-check SQL update, then try again.';
+    }
+
+    if (requestError.code === '42703') {
+      return 'The database is missing one of the admin_users columns required by this page. Apply the latest admin_users SQL updates, then try again.';
+    }
+
+    return [requestError.message, requestError.details, requestError.hint].filter(Boolean).join(' ');
+  }
+
+  if (error instanceof Error) {
+    if (error.message.toLowerCase().includes('security purposes')) {
+      return error.message;
+    }
+
+    return error.message;
+  }
+
+  return fallback;
+};
+
+const isMissingAdminUserNameColumn = (error: unknown) => {
+  if (!error || typeof error !== 'object') return false;
+  if (!('code' in error) || !('message' in error)) return false;
+  return error.code === '42703' && typeof error.message === 'string' && error.message.includes('admin_users.name');
+};
+
 export default function RegionalAdminPage() {
   const { toast } = useToast();
-  const { isSuperAdmin } = useAuth();
+  const { adminUser, isSuperAdmin, isLoading: isAuthLoading } = useAuth();
   const navigate = useNavigate();
-  
-  const [admins, setAdmins] = useState<AdminUser[]>([]);
+  const location = useLocation();
+  const canManageSalesRoles = isSuperAdmin || adminUser?.role === 'admin';
+  const managedRoles = useMemo<UserRole[]>(
+    () => (isSuperAdmin
+      ? ['regional_admin', 'tsm', 'team_leader', 'captain', 'dsr']
+      : ['team_leader', 'captain', 'dsr']),
+    [isSuperAdmin]
+  );
+
+  const [users, setUsers] = useState<ManagedUser[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
+  const [teamLeaders, setTeamLeaders] = useState<TeamLeaderOption[]>([]);
+  const [captains, setCaptains] = useState<CaptainOption[]>([]);
+  const [dsrs, setDsrs] = useState<DsrOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Dialog states
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<UserRole>(() => {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab === 'tsm' && isSuperAdmin) return 'tsm';
+    if (tab === 'regional_admin' && isSuperAdmin) return 'regional_admin';
+    if (tab === 'captain') return 'captain';
+    if (tab === 'dsr') return 'dsr';
+    return isSuperAdmin ? 'regional_admin' : 'team_leader';
+  });
+  const [regionalDialogOpen, setRegionalDialogOpen] = useState(false);
+  const [tlDialogOpen, setTlDialogOpen] = useState(false);
+  const [captainDialogOpen, setCaptainDialogOpen] = useState(false);
+  const [dsrDialogOpen, setDsrDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [editingAdmin, setEditingAdmin] = useState<AdminUser | null>(null);
-  const [deleteAdmin, setDeleteAdmin] = useState<AdminUser | null>(null);
   const [saving, setSaving] = useState(false);
-  
-  // Form state
-  const [formData, setFormData] = useState({
-    email: '',
+  const [editingRegionalUser, setEditingRegionalUser] = useState<ManagedUser | null>(null);
+  const [editingTLUser, setEditingTLUser] = useState<ManagedUser | null>(null);
+  const [editingCaptainUser, setEditingCaptainUser] = useState<ManagedUser | null>(null);
+  const [editingDsrUser, setEditingDsrUser] = useState<ManagedUser | null>(null);
+  const [deleteUser, setDeleteUser] = useState<ManagedUser | null>(null);
+  const [regionalForm, setRegionalForm] = useState({
     name: '',
+    email: '',
+    password: '',
+    role: 'regional_admin' as 'regional_admin' | 'tsm',
     selectedRegions: [] as string[],
   });
+  const [teamLeaderForm, setTeamLeaderForm] = useState({
+    teamLeaderId: '',
+    email: '',
+    password: '',
+  });
+  const [captainForm, setCaptainForm] = useState({
+    captainId: '',
+    email: '',
+    password: '',
+  });
+  const [dsrForm, setDsrForm] = useState({
+    dsrId: '',
+    email: '',
+    password: '',
+  });
 
-  // Redirect if not super admin
   useEffect(() => {
-    if (!isSuperAdmin) {
+    if (!isAuthLoading && !canManageSalesRoles) {
       navigate('/admin');
     }
-  }, [isSuperAdmin, navigate]);
+  }, [canManageSalesRoles, isAuthLoading, navigate]);
+
+  useEffect(() => {
+    if (!isSuperAdmin && activeTab === 'regional_admin') {
+      setActiveTab('team_leader');
+    }
+  }, [activeTab, isSuperAdmin]);
+
+  useEffect(() => {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab === 'tsm' && isSuperAdmin) {
+      setActiveTab('tsm');
+      return;
+    }
+    if (tab === 'regional_admin' && isSuperAdmin) {
+      setActiveTab('regional_admin');
+      return;
+    }
+    if (tab === 'team_leader' || tab === 'captain' || tab === 'dsr') {
+      setActiveTab(tab);
+    }
+  }, [isSuperAdmin, location.search]);
+
+  const createManagedAuthUser = async (email: string, password: string) => {
+    const client = managedAuthClient;
+    const { data, error } = await client.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/admin/login`,
+      },
+    });
+
+    if (error) throw error;
+    if (!data.user?.id) throw new Error('User account could not be created.');
+    return data.user.id;
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch all regional admins
-      const { data: adminsData } = await supabase
-        .from('admin_users')
-        .select('*')
-        .eq('role', 'regional_admin')
-        .order('created_at', { ascending: false });
+      const loadUsers = async () => {
+        const withName = await supabase
+          .from('admin_users')
+          .select('id, user_id, email, name, role, created_at, team_leader_id, captain_id, dsr_id')
+          .in('role', managedRoles)
+          .order('created_at', { ascending: false });
 
-      // Fetch all regions
-      const { data: regionsData } = await supabase
-        .from('regions')
-        .select('id, name, zone_id, zones:zone_id(name)')
-        .order('name');
+        if (!withName.error) return withName;
+        if (!isMissingAdminUserNameColumn(withName.error)) return withName;
 
-      // Fetch region assignments for each admin
-      if (adminsData) {
-        const adminsWithRegions = await Promise.all(
-          adminsData.map(async (admin) => {
-            const { data: assignments } = await supabase
-              .from('admin_region_assignments')
-              .select('region_id, regions:region_id(id, name)')
-              .eq('admin_id', admin.id);
+        const withoutName = await supabase
+          .from('admin_users')
+          .select('id, user_id, email, role, created_at, team_leader_id, captain_id, dsr_id')
+          .in('role', managedRoles)
+          .order('created_at', { ascending: false });
 
-            return {
-              ...admin,
-              assigned_regions: assignments
-                ?.map((a: { region_id: string; regions: { id: string; name: string } | null }) => a.regions)
-                .filter((r): r is { id: string; name: string } => r !== null) || [],
-            };
-          })
-        );
-        setAdmins(adminsWithRegions);
+        if (withoutName.error) return withoutName;
+
+        return {
+          ...withoutName,
+          data: (withoutName.data || []).map((user) => ({ ...user, name: null })),
+        };
+      };
+
+      const [usersRes, regionsRes, teamLeadersRes, captainsRes, dsrsRes] = await Promise.all([
+        loadUsers(),
+        supabase.from('regions').select('id, name, zone_id, zones:zone_id(name)').order('name'),
+        supabase.from('team_leaders').select('id, name, phone, region_id, regions:region_id(name)').order('name'),
+        supabase.from('captains').select('id, name, phone, team_leader_id').order('name'),
+        supabase.from('dsrs').select('id, name, phone, captain_id').order('name'),
+      ]);
+
+      if (usersRes.error) throw usersRes.error;
+      if (regionsRes.error) throw regionsRes.error;
+      if (teamLeadersRes.error) throw teamLeadersRes.error;
+      if (captainsRes.error) throw captainsRes.error;
+      if (dsrsRes.error) throw dsrsRes.error;
+
+      const teamLeaderList = (teamLeadersRes.data || []) as TeamLeaderOption[];
+      const captainList = (captainsRes.data || []) as CaptainOption[];
+      const dsrList = (dsrsRes.data || []) as DsrOption[];
+      const captainMap = new Map(captainList.map((captain) => [captain.id, captain]));
+      const regionScopedAdminIds = ((usersRes.data || []) as ManagedUser[])
+        .filter((user) => user.role === 'regional_admin' || user.role === 'tsm')
+        .map((user) => user.id);
+      const assignmentMap = new Map<string, Array<{ id: string; name: string }>>();
+
+      if (regionScopedAdminIds.length > 0) {
+        const { data: assignments } = await supabase
+          .from('admin_region_assignments')
+          .select('admin_id, regions:region_id(id, name)')
+          .in('admin_id', regionScopedAdminIds);
+
+        for (const assignment of assignments || []) {
+          const region = assignment.regions;
+          if (!region) continue;
+
+          const existingRegions = assignmentMap.get(assignment.admin_id) || [];
+          existingRegions.push(region);
+          assignmentMap.set(assignment.admin_id, existingRegions);
+        }
       }
 
-      if (regionsData) setRegions(regionsData);
+      const mappedUsers = await Promise.all(
+        ((usersRes.data || []) as ManagedUser[]).map(async (user) => {
+          if (user.role === 'regional_admin' || user.role === 'tsm') {
+            return {
+              ...user,
+              assigned_regions: assignmentMap.get(user.id) || [],
+              team_leader: null,
+              captain: null,
+              dsr: null,
+            };
+          }
+
+          const linkedTeamLeader = teamLeaderList.find((teamLeader) => teamLeader.id === user.team_leader_id) || null;
+          const linkedCaptain = captainList.find((captain) => captain.id === user.captain_id) || null;
+          const linkedDsr = dsrList.find((dsr) => dsr.id === user.dsr_id) || null;
+          const linkedDsrCaptain = linkedDsr?.captain_id ? captainMap.get(linkedDsr.captain_id) || null : null;
+
+          return {
+            ...user,
+            assigned_regions: [],
+            team_leader: linkedTeamLeader
+              ? {
+                  id: linkedTeamLeader.id,
+                  name: linkedTeamLeader.name,
+                  phone: linkedTeamLeader.phone,
+                  region_id: linkedTeamLeader.region_id,
+                  region_name: linkedTeamLeader.regions?.name || null,
+                }
+              : null,
+            captain: linkedCaptain
+              ? {
+                  id: linkedCaptain.id,
+                  name: linkedCaptain.name,
+                  phone: linkedCaptain.phone,
+                  team_leader_id: linkedCaptain.team_leader_id,
+                  team_leader_name: linkedCaptain.team_leader_id ? teamLeaderList.find((teamLeader) => teamLeader.id === linkedCaptain.team_leader_id)?.name || null : null,
+                }
+              : null,
+            dsr: linkedDsr
+              ? {
+                  id: linkedDsr.id,
+                  name: linkedDsr.name,
+                  phone: linkedDsr.phone,
+                  captain_id: linkedDsr.captain_id,
+                  captain_name: linkedDsrCaptain?.name || null,
+                  team_leader_id: linkedDsrCaptain?.team_leader_id || null,
+                  team_leader_name: linkedDsrCaptain?.team_leader_id ? teamLeaderList.find((teamLeader) => teamLeader.id === linkedDsrCaptain.team_leader_id)?.name || null : null,
+                }
+              : null,
+          };
+        })
+      );
+
+      setUsers(mappedUsers);
+      setRegions(regionsRes.data || []);
+      setTeamLeaders(teamLeaderList);
+      setCaptains(captainList);
+      setDsrs(dsrList);
     } catch (error) {
-      console.error('Error fetching data:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load data',
-        variant: 'destructive',
-      });
+      console.error('Error fetching users page data:', error);
+      toast({ title: 'Error', description: getRequestErrorMessage(error, 'Failed to load users page data.'), variant: 'destructive' });
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [managedRoles, toast]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (canManageSalesRoles) {
+      fetchData();
+    }
+  }, [canManageSalesRoles, fetchData]);
 
-  const handleOpenDialog = (admin?: AdminUser) => {
-    if (admin) {
-      setEditingAdmin(admin);
-      setFormData({
-        email: admin.email,
-        name: admin.name || '',
-        selectedRegions: admin.assigned_regions?.map(r => r.id) || [],
+  const regionalAdmins = useMemo(() => users.filter((user) => user.role === 'regional_admin'), [users]);
+  const tsmUsers = useMemo(() => users.filter((user) => user.role === 'tsm'), [users]);
+  const teamLeaderUsers = useMemo(() => users.filter((user) => user.role === 'team_leader'), [users]);
+  const captainUsers = useMemo(() => users.filter((user) => user.role === 'captain'), [users]);
+  const dsrUsers = useMemo(() => users.filter((user) => user.role === 'dsr'), [users]);
+
+  const filteredRegionalAdmins = useMemo(
+    () =>
+      regionalAdmins.filter((user) => {
+        const query = searchQuery.toLowerCase();
+        return (
+          user.email.toLowerCase().includes(query) ||
+          (user.assigned_regions || []).some((region) => region.name.toLowerCase().includes(query))
+        );
+      }),
+    [regionalAdmins, searchQuery]
+  );
+
+  const filteredTsmUsers = useMemo(
+    () =>
+      tsmUsers.filter((user) => {
+        const query = searchQuery.toLowerCase();
+        return (
+          user.email.toLowerCase().includes(query) ||
+          (user.assigned_regions || []).some((region) => region.name.toLowerCase().includes(query))
+        );
+      }),
+    [searchQuery, tsmUsers]
+  );
+
+  const filteredTeamLeaderUsers = useMemo(
+    () =>
+      teamLeaderUsers.filter((user) => {
+        const query = searchQuery.toLowerCase();
+        return (
+          user.email.toLowerCase().includes(query) ||
+          (user.team_leader?.name || '').toLowerCase().includes(query) ||
+          (user.team_leader?.region_name || '').toLowerCase().includes(query)
+        );
+      }),
+    [searchQuery, teamLeaderUsers]
+  );
+
+  const filteredCaptainUsers = useMemo(
+    () =>
+      captainUsers.filter((user) => {
+        const query = searchQuery.toLowerCase();
+        return (
+          user.email.toLowerCase().includes(query) ||
+          (user.captain?.name || '').toLowerCase().includes(query) ||
+          (user.captain?.team_leader_name || '').toLowerCase().includes(query)
+        );
+      }),
+    [captainUsers, searchQuery]
+  );
+
+  const filteredDsrUsers = useMemo(
+    () =>
+      dsrUsers.filter((user) => {
+        const query = searchQuery.toLowerCase();
+        return (
+          user.email.toLowerCase().includes(query) ||
+          (user.dsr?.name || '').toLowerCase().includes(query) ||
+          (user.dsr?.captain_name || '').toLowerCase().includes(query)
+        );
+      }),
+    [dsrUsers, searchQuery]
+  );
+
+  const availableTeamLeaders = useMemo(
+    () =>
+      teamLeaders.filter(
+        (teamLeader) =>
+          !teamLeaderUsers.some(
+            (user) => user.team_leader_id === teamLeader.id && user.id !== editingTLUser?.id
+          )
+      ),
+    [editingTLUser?.id, teamLeaderUsers, teamLeaders]
+  );
+
+  const availableCaptains = useMemo(
+    () =>
+      captains.filter(
+        (captain) => !captainUsers.some((user) => user.captain_id === captain.id && user.id !== editingCaptainUser?.id)
+      ),
+    [captainUsers, captains, editingCaptainUser?.id]
+  );
+
+  const availableDsrs = useMemo(
+    () =>
+      dsrs.filter(
+        (dsr) => !dsrUsers.some((user) => user.dsr_id === dsr.id && user.id !== editingDsrUser?.id)
+      ),
+    [dsrUsers, dsrs, editingDsrUser?.id]
+  );
+
+  const resetRegionalForm = () => {
+    setEditingRegionalUser(null);
+    setRegionalForm({ name: '', email: '', password: '', role: 'regional_admin', selectedRegions: [] });
+  };
+
+  const resetTeamLeaderForm = () => {
+    setEditingTLUser(null);
+    setTeamLeaderForm({ teamLeaderId: '', email: '', password: '' });
+  };
+
+  const resetCaptainForm = () => {
+    setEditingCaptainUser(null);
+    setCaptainForm({ captainId: '', email: '', password: '' });
+  };
+
+  const resetDsrForm = () => {
+    setEditingDsrUser(null);
+    setDsrForm({ dsrId: '', email: '', password: '' });
+  };
+
+  const openRegionalDialog = (user?: ManagedUser, role: 'regional_admin' | 'tsm' = 'regional_admin') => {
+    if (user) {
+      setEditingRegionalUser(user);
+      setRegionalForm({
+        name: user.name || '',
+        email: user.email,
+        password: '',
+        role: user.role === 'tsm' ? 'tsm' : 'regional_admin',
+        selectedRegions: user.assigned_regions?.map((region) => region.id) || [],
       });
     } else {
-      setEditingAdmin(null);
-      setFormData({
-        email: '',
-        name: '',
-        selectedRegions: [],
-      });
+      resetRegionalForm();
+      setRegionalForm({ name: '', email: '', password: '', role, selectedRegions: [] });
     }
-    setDialogOpen(true);
+    setRegionalDialogOpen(true);
+  };
+
+  const openTeamLeaderDialog = (user?: ManagedUser) => {
+    if (user) {
+      setEditingTLUser(user);
+      setTeamLeaderForm({
+        teamLeaderId: user.team_leader_id || '',
+        email: user.email,
+        password: '',
+      });
+    } else {
+      resetTeamLeaderForm();
+    }
+    setTlDialogOpen(true);
+  };
+
+  const openCaptainDialog = (user?: ManagedUser) => {
+    if (user) {
+      setEditingCaptainUser(user);
+      setCaptainForm({ captainId: user.captain_id || '', email: user.email, password: '' });
+    } else {
+      resetCaptainForm();
+    }
+    setCaptainDialogOpen(true);
+  };
+
+  const openDsrDialog = (user?: ManagedUser) => {
+    if (user) {
+      setEditingDsrUser(user);
+      setDsrForm({ dsrId: user.dsr_id || '', email: user.email, password: '' });
+    } else {
+      resetDsrForm();
+    }
+    setDsrDialogOpen(true);
   };
 
   const handleToggleRegion = (regionId: string) => {
-    setFormData(prev => ({
-      ...prev,
-      selectedRegions: prev.selectedRegions.includes(regionId)
-        ? prev.selectedRegions.filter(id => id !== regionId)
-        : [...prev.selectedRegions, regionId],
+    setRegionalForm((previous) => ({
+      ...previous,
+      selectedRegions: previous.selectedRegions.includes(regionId)
+        ? previous.selectedRegions.filter((id) => id !== regionId)
+        : [...previous.selectedRegions, regionId],
     }));
   };
 
-  const handleSave = async () => {
-    if (!formData.email.trim()) {
-      toast({ title: 'Error', description: 'Email is required', variant: 'destructive' });
+  const handleSaveRegionalUser = async () => {
+    if (!regionalForm.email.trim()) {
+      toast({ title: 'Error', description: 'Email is required.', variant: 'destructive' });
       return;
     }
-
-    if (formData.selectedRegions.length === 0) {
-      toast({ title: 'Error', description: 'Select at least one region', variant: 'destructive' });
+    if (!editingRegionalUser && !regionalForm.password.trim()) {
+      toast({ title: 'Error', description: 'Password is required for new regional admins.', variant: 'destructive' });
+      return;
+    }
+    if (regionalForm.selectedRegions.length === 0) {
+      toast({ title: 'Error', description: 'Select at least one region.', variant: 'destructive' });
       return;
     }
 
     setSaving(true);
     try {
-      let adminId: string;
+      let adminId = editingRegionalUser?.id;
+      const scopedRole = regionalForm.role;
 
-      if (editingAdmin) {
-        // Update existing admin
-        const { error } = await supabase
+      if (editingRegionalUser) {
+        let { error } = await supabase
           .from('admin_users')
-          .update({
-            email: formData.email.trim(),
-            name: formData.name.trim() || null,
-          })
-          .eq('id', editingAdmin.id);
-
+          .update({ name: regionalForm.name.trim() || null, email: regionalForm.email.trim(), role: scopedRole })
+          .eq('id', editingRegionalUser.id);
+        if (isMissingAdminUserNameColumn(error)) {
+          ({ error } = await supabase
+            .from('admin_users')
+            .update({ email: regionalForm.email.trim(), role: scopedRole })
+            .eq('id', editingRegionalUser.id));
+        }
         if (error) throw error;
-        adminId = editingAdmin.id;
-
-        // Delete existing region assignments
-        await supabase
-          .from('admin_region_assignments')
-          .delete()
-          .eq('admin_id', adminId);
+        await supabase.from('admin_region_assignments').delete().eq('admin_id', editingRegionalUser.id);
       } else {
-        // Create new regional admin
-        const { data: newAdmin, error } = await supabase
+        const userId = await createManagedAuthUser(regionalForm.email.trim(), regionalForm.password.trim());
+        let insertResult = await supabase
           .from('admin_users')
           .insert({
-            email: formData.email.trim(),
-            name: formData.name.trim() || null,
-            role: 'regional_admin',
-            user_id: null, // Will be linked when they log in
+            name: regionalForm.name.trim() || null,
+            email: regionalForm.email.trim(),
+            role: scopedRole,
+            user_id: userId,
+            team_leader_id: null,
           })
-          .select()
+          .select('id')
           .single();
-
-        if (error) {
-          if (error.code === '23505') {
-            throw new Error('An admin with this email already exists');
-          }
-          throw error;
+        if (isMissingAdminUserNameColumn(insertResult.error)) {
+          insertResult = await supabase
+            .from('admin_users')
+            .insert({
+              email: regionalForm.email.trim(),
+              role: scopedRole,
+              user_id: userId,
+              team_leader_id: null,
+            })
+            .select('id')
+            .single();
         }
-        adminId = newAdmin.id;
+        const { data, error } = insertResult;
+        if (error) throw error;
+        adminId = data.id;
       }
 
-      // Create region assignments
-      const assignments = formData.selectedRegions.map(regionId => ({
-        admin_id: adminId,
-        region_id: regionId,
-      }));
-
-      const { error: assignError } = await supabase
-        .from('admin_region_assignments')
-        .insert(assignments);
-
-      if (assignError) throw assignError;
+      const { error: assignmentError } = await supabase.from('admin_region_assignments').insert(
+        regionalForm.selectedRegions.map((regionId) => ({ admin_id: adminId as string, region_id: regionId }))
+      );
+      if (assignmentError) throw assignmentError;
 
       toast({
-        title: editingAdmin ? 'Updated' : 'Created',
-        description: editingAdmin
-          ? 'Regional admin updated successfully'
-          : 'Regional admin created successfully. They can now log in with their email.',
+        title: editingRegionalUser ? 'Updated' : 'Created',
+        description: editingRegionalUser
+          ? `${scopedRole === 'tsm' ? 'TSM' : 'Regional admin'} updated successfully.`
+          : `${scopedRole === 'tsm' ? 'TSM' : 'Regional admin'} login created successfully.`,
       });
-
-      setDialogOpen(false);
+      setRegionalDialogOpen(false);
+      resetRegionalForm();
       fetchData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to save';
+      const message = getRequestErrorMessage(error, 'Failed to save region-scoped user.');
       toast({ title: 'Error', description: message, variant: 'destructive' });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteAdmin) return;
+  const handleSaveTeamLeaderUser = async () => {
+    if (!teamLeaderForm.teamLeaderId) {
+      toast({ title: 'Error', description: 'Select a team leader first.', variant: 'destructive' });
+      return;
+    }
+    if (!teamLeaderForm.email.trim()) {
+      toast({ title: 'Error', description: 'Email is required.', variant: 'destructive' });
+      return;
+    }
+    if (!editingTLUser && !teamLeaderForm.password.trim()) {
+      toast({ title: 'Error', description: 'Password is required for new TL users.', variant: 'destructive' });
+      return;
+    }
 
+    const linkedTeamLeader = teamLeaders.find((teamLeader) => teamLeader.id === teamLeaderForm.teamLeaderId);
+    if (!linkedTeamLeader) {
+      toast({ title: 'Error', description: 'Selected team leader was not found.', variant: 'destructive' });
+      return;
+    }
+
+    setSaving(true);
     try {
-      // Delete region assignments first (should cascade, but be explicit)
-      await supabase
-        .from('admin_region_assignments')
-        .delete()
-        .eq('admin_id', deleteAdmin.id);
+      if (editingTLUser) {
+        const { error } = await supabase
+          .from('admin_users')
+          .update({
+            email: teamLeaderForm.email.trim(),
+            team_leader_id: linkedTeamLeader.id,
+            captain_id: null,
+            dsr_id: null,
+          })
+          .eq('id', editingTLUser.id);
+        if (error) throw error;
+      } else {
+        const userId = await createManagedAuthUser(teamLeaderForm.email.trim(), teamLeaderForm.password.trim());
+        const { error } = await supabase.from('admin_users').insert({
+          email: teamLeaderForm.email.trim(),
+          role: 'team_leader',
+          user_id: userId,
+          team_leader_id: linkedTeamLeader.id,
+          captain_id: null,
+          dsr_id: null,
+        });
+        if (error) throw error;
+      }
 
-      // Delete admin user
-      const { error } = await supabase
-        .from('admin_users')
-        .delete()
-        .eq('id', deleteAdmin.id);
-
-      if (error) throw error;
-
-      toast({ title: 'Deleted', description: 'Regional admin removed' });
-      setDeleteDialogOpen(false);
-      setDeleteAdmin(null);
+      toast({
+        title: editingTLUser ? 'Updated' : 'Created',
+        description: editingTLUser ? 'Team leader login updated successfully.' : 'Team leader login created successfully.',
+      });
+      setTlDialogOpen(false);
+      resetTeamLeaderForm();
       fetchData();
     } catch (error) {
-      toast({ title: 'Error', description: 'Failed to delete', variant: 'destructive' });
+      const message = getRequestErrorMessage(error, 'Failed to save team leader login.');
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
     }
   };
 
-  const filteredAdmins = admins.filter(admin =>
-    admin.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    admin.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    admin.assigned_regions?.some(r => r.name.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const handleSaveCaptainUser = async () => {
+    if (!captainForm.captainId) {
+      toast({ title: 'Error', description: 'Select a captain first.', variant: 'destructive' });
+      return;
+    }
+    if (!captainForm.email.trim()) {
+      toast({ title: 'Error', description: 'Email is required.', variant: 'destructive' });
+      return;
+    }
+    if (!editingCaptainUser && !captainForm.password.trim()) {
+      toast({ title: 'Error', description: 'Password is required for new captain users.', variant: 'destructive' });
+      return;
+    }
 
-  if (!isSuperAdmin) {
-    return null;
+    const linkedCaptain = captains.find((captain) => captain.id === captainForm.captainId);
+    if (!linkedCaptain) {
+      toast({ title: 'Error', description: 'Selected captain was not found.', variant: 'destructive' });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (editingCaptainUser) {
+        const { error } = await supabase
+          .from('admin_users')
+          .update({
+            email: captainForm.email.trim(),
+            team_leader_id: linkedCaptain.team_leader_id,
+            captain_id: linkedCaptain.id,
+            dsr_id: null,
+          })
+          .eq('id', editingCaptainUser.id);
+        if (error) throw error;
+      } else {
+        const userId = await createManagedAuthUser(captainForm.email.trim(), captainForm.password.trim());
+        const { error } = await supabase.from('admin_users').insert({
+          email: captainForm.email.trim(),
+          role: 'captain',
+          user_id: userId,
+          team_leader_id: linkedCaptain.team_leader_id,
+          captain_id: linkedCaptain.id,
+          dsr_id: null,
+        });
+        if (error) throw error;
+      }
+
+      toast({ title: editingCaptainUser ? 'Updated' : 'Created', description: editingCaptainUser ? 'Captain login updated successfully.' : 'Captain login created successfully.' });
+      setCaptainDialogOpen(false);
+      resetCaptainForm();
+      fetchData();
+    } catch (error) {
+      const message = getRequestErrorMessage(error, 'Failed to save captain login.');
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveDsrUser = async () => {
+    if (!dsrForm.dsrId) {
+      toast({ title: 'Error', description: 'Select a DSR first.', variant: 'destructive' });
+      return;
+    }
+    if (!dsrForm.email.trim()) {
+      toast({ title: 'Error', description: 'Email is required.', variant: 'destructive' });
+      return;
+    }
+    if (!editingDsrUser && !dsrForm.password.trim()) {
+      toast({ title: 'Error', description: 'Password is required for new DSR users.', variant: 'destructive' });
+      return;
+    }
+
+    const linkedDsr = dsrs.find((dsr) => dsr.id === dsrForm.dsrId);
+    if (!linkedDsr) {
+      toast({ title: 'Error', description: 'Selected DSR was not found.', variant: 'destructive' });
+      return;
+    }
+
+    const linkedCaptain = linkedDsr.captain_id ? captains.find((captain) => captain.id === linkedDsr.captain_id) || null : null;
+
+    setSaving(true);
+    try {
+      if (editingDsrUser) {
+        const { error } = await supabase
+          .from('admin_users')
+          .update({
+            email: dsrForm.email.trim(),
+            team_leader_id: linkedCaptain?.team_leader_id || null,
+            captain_id: linkedDsr.captain_id,
+            dsr_id: linkedDsr.id,
+          })
+          .eq('id', editingDsrUser.id);
+        if (error) throw error;
+      } else {
+        const userId = await createManagedAuthUser(dsrForm.email.trim(), dsrForm.password.trim());
+        const { error } = await supabase.from('admin_users').insert({
+          email: dsrForm.email.trim(),
+          role: 'dsr',
+          user_id: userId,
+          team_leader_id: linkedCaptain?.team_leader_id || null,
+          captain_id: linkedDsr.captain_id,
+          dsr_id: linkedDsr.id,
+        });
+        if (error) throw error;
+      }
+
+      toast({ title: editingDsrUser ? 'Updated' : 'Created', description: editingDsrUser ? 'DSR login updated successfully.' : 'DSR login created successfully.' });
+      setDsrDialogOpen(false);
+      resetDsrForm();
+      fetchData();
+    } catch (error) {
+      const message = getRequestErrorMessage(error, 'Failed to save DSR login.');
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deleteUser) return;
+
+    try {
+      if (deleteUser.role === 'regional_admin' || deleteUser.role === 'tsm') {
+        await supabase.from('admin_region_assignments').delete().eq('admin_id', deleteUser.id);
+      }
+      const { error } = await supabase.from('admin_users').delete().eq('id', deleteUser.id);
+      if (error) throw error;
+
+      toast({ title: 'Deleted', description: 'User access removed successfully.' });
+      setDeleteDialogOpen(false);
+      setDeleteUser(null);
+      fetchData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete user.';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    }
+  };
+
+  if (isAuthLoading) {
+    return (
+      <AdminLayout>
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-64" />
+            <Skeleton className="h-4 w-96" />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <GlassCard key={index} className="p-4">
+                <Skeleton className="h-20 w-full" />
+              </GlassCard>
+            ))}
+          </div>
+          <GlassCard className="p-4">
+            <Skeleton className="h-10 w-full" />
+          </GlassCard>
+        </div>
+      </AdminLayout>
+    );
   }
+
+  if (!canManageSalesRoles) return null;
 
   return (
     <AdminLayout>
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h1 className="text-3xl font-display font-bold flex items-center gap-3">
-              <Shield className="h-8 w-8 text-primary" />
-              Regional Admins
+              <Users className="h-8 w-8 text-primary" />
+              Users Page
             </h1>
-            <p className="text-muted-foreground mt-1">
-              Manage regional administrators and their assigned regions
-            </p>
+            <p className="text-muted-foreground mt-1">Manage sales-team login credentials and access roles, including TSM accounts.</p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={fetchData} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button onClick={() => handleOpenDialog()}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Regional Admin
-            </Button>
-          </div>
+          <Button variant="outline" onClick={fetchData} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <GlassCard className="p-4 text-center">
             <Users className="h-6 w-6 mx-auto text-primary mb-2" />
-            <p className="text-2xl font-bold">{admins.length}</p>
-            <p className="text-sm text-muted-foreground">Regional Admins</p>
+            <p className="text-2xl font-bold">{users.length}</p>
+            <p className="text-sm text-muted-foreground">Total Users</p>
           </GlassCard>
           <GlassCard className="p-4 text-center">
-            <MapPin className="h-6 w-6 mx-auto text-blue-500 mb-2" />
-            <p className="text-2xl font-bold">{regions.length}</p>
-            <p className="text-sm text-muted-foreground">Total Regions</p>
+            <Shield className="h-6 w-6 mx-auto text-blue-500 mb-2" />
+            <p className="text-2xl font-bold">{regionalAdmins.length + tsmUsers.length}</p>
+            <p className="text-sm text-muted-foreground">Region-Scoped Admins</p>
           </GlassCard>
           <GlassCard className="p-4 text-center">
-            <Check className="h-6 w-6 mx-auto text-green-500 mb-2" />
-            <p className="text-2xl font-bold">
-              {new Set(admins.flatMap(a => a.assigned_regions?.map(r => r.id) || [])).size}
-            </p>
-            <p className="text-sm text-muted-foreground">Regions Assigned</p>
+            <UserCircle2 className="h-6 w-6 mx-auto text-amber-500 mb-2" />
+            <p className="text-2xl font-bold">{teamLeaderUsers.length}</p>
+            <p className="text-sm text-muted-foreground">TL Logins</p>
           </GlassCard>
           <GlassCard className="p-4 text-center">
-            <X className="h-6 w-6 mx-auto text-red-500 mb-2" />
-            <p className="text-2xl font-bold">
-              {regions.length - new Set(admins.flatMap(a => a.assigned_regions?.map(r => r.id) || [])).size}
-            </p>
-            <p className="text-sm text-muted-foreground">Unassigned Regions</p>
+            <KeyRound className="h-6 w-6 mx-auto text-green-500 mb-2" />
+            <p className="text-2xl font-bold">{captainUsers.length + dsrUsers.length}</p>
+            <p className="text-sm text-muted-foreground">Captain + DSR Logins</p>
           </GlassCard>
         </div>
 
-        {/* Search */}
         <GlassCard className="p-4">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search by email, name, or region..."
+              placeholder="Search by email, name, region, or TL..."
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(event) => setSearchQuery(event.target.value)}
               className="pl-9"
             />
           </div>
         </GlassCard>
 
-        {/* Table */}
-        <GlassCard>
-          <div className="overflow-x-auto">
-            {loading ? (
-              <div className="space-y-4 p-4">
-                {[...Array(5)].map((_, i) => (
-                  <Skeleton key={i} className="h-16 w-full" />
-                ))}
-              </div>
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as UserRole)}>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <TabsList>
+              {isSuperAdmin && <TabsTrigger value="regional_admin">Regional Admin Credentials</TabsTrigger>}
+              {isSuperAdmin && <TabsTrigger value="tsm">TSM Credentials</TabsTrigger>}
+              <TabsTrigger value="team_leader">Team Leader Credentials</TabsTrigger>
+              <TabsTrigger value="captain">Captain Credentials</TabsTrigger>
+              <TabsTrigger value="dsr">DSR Credentials</TabsTrigger>
+            </TabsList>
+            {(activeTab === 'regional_admin' || activeTab === 'tsm') && isSuperAdmin ? (
+              <Button onClick={() => openRegionalDialog(undefined, activeTab === 'tsm' ? 'tsm' : 'regional_admin')}>
+                <Plus className="h-4 w-4 mr-2" />
+                {activeTab === 'tsm' ? 'Add TSM' : 'Add Regional Admin'}
+              </Button>
+            ) : activeTab === 'team_leader' ? (
+              <Button onClick={() => openTeamLeaderDialog()}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add TL Login
+              </Button>
+            ) : activeTab === 'captain' ? (
+              <Button onClick={() => openCaptainDialog()}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Captain Login
+              </Button>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Admin</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Assigned Regions</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredAdmins.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
-                        <p className="text-muted-foreground">
-                          {admins.length === 0
-                            ? 'No regional admins yet. Click "Add Regional Admin" to create one.'
-                            : 'No admins match your search.'}
-                        </p>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredAdmins.map(admin => (
-                      <TableRow key={admin.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                              <Users className="h-5 w-5 text-primary" />
-                            </div>
-                            <span className="font-medium">{admin.name || 'Not set'}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">{admin.email}</TableCell>
-                        <TableCell>
-                          <Badge variant={admin.user_id ? 'default' : 'secondary'}>
-                            {admin.user_id ? 'Active' : 'Pending Login'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1 max-w-xs">
-                            {admin.assigned_regions && admin.assigned_regions.length > 0 ? (
-                              admin.assigned_regions.map(region => (
-                                <Badge key={region.id} variant="outline" className="text-xs">
-                                  <MapPin className="h-3 w-3 mr-1" />
-                                  {region.name}
-                                </Badge>
-                              ))
-                            ) : (
-                              <span className="text-muted-foreground text-sm">None</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {new Date(admin.created_at).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleOpenDialog(admin)}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                setDeleteAdmin(admin);
-                                setDeleteDialogOpen(true);
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+              <Button onClick={() => openDsrDialog()}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add DSR Login
+              </Button>
             )}
           </div>
-        </GlassCard>
+
+          <TabsContent value="regional_admin" className="mt-6">
+            <GlassCard>
+              <div className="overflow-x-auto">
+                {loading ? (
+                  <div className="space-y-4 p-4">{[...Array(5)].map((_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>User</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Assigned Regions</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredRegionalAdmins.length === 0 ? (
+                        <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No regional admin credentials found.</TableCell></TableRow>
+                      ) : (
+                        filteredRegionalAdmins.map((user) => (
+                          <TableRow key={user.id}>
+                            <TableCell><div className="font-medium">{user.email}</div></TableCell>
+                            <TableCell className="font-mono text-sm">{user.email}</TableCell>
+                            <TableCell><Badge variant={user.user_id ? 'default' : 'secondary'}>{user.user_id ? 'Ready' : 'Not Linked'}</Badge></TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1 max-w-xs">
+                                {(user.assigned_regions || []).map((region) => (
+                                  <Badge key={region.id} variant="outline" className="text-xs">
+                                    <MapPin className="h-3 w-3 mr-1" />{region.name}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{new Date(user.created_at).toLocaleDateString()}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button variant="ghost" size="icon" onClick={() => openRegionalDialog(user)}><Edit className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" onClick={() => { setDeleteUser(user); setDeleteDialogOpen(true); }}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </GlassCard>
+          </TabsContent>
+
+          <TabsContent value="team_leader" className="mt-6">
+            <GlassCard>
+              <div className="overflow-x-auto">
+                {loading ? (
+                  <div className="space-y-4 p-4">{[...Array(5)].map((_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Team Leader</TableHead>
+                        <TableHead>Region</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredTeamLeaderUsers.length === 0 ? (
+                        <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No TL credentials found.</TableCell></TableRow>
+                      ) : (
+                        filteredTeamLeaderUsers.map((user) => (
+                          <TableRow key={user.id}>
+                            <TableCell>
+                              <div className="font-medium">{user.team_leader?.name || user.email}</div>
+                              <div className="text-xs text-muted-foreground">{user.team_leader?.phone || 'No phone'}</div>
+                            </TableCell>
+                            <TableCell>{user.team_leader?.region_name || '-'}</TableCell>
+                            <TableCell className="font-mono text-sm">{user.email}</TableCell>
+                            <TableCell><Badge variant={user.user_id ? 'default' : 'secondary'}>{user.user_id ? 'Ready' : 'Not Linked'}</Badge></TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{new Date(user.created_at).toLocaleDateString()}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button variant="ghost" size="icon" onClick={() => openTeamLeaderDialog(user)}><Edit className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" onClick={() => { setDeleteUser(user); setDeleteDialogOpen(true); }}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </GlassCard>
+          </TabsContent>
+
+          <TabsContent value="captain" className="mt-6">
+            <GlassCard>
+              <div className="overflow-x-auto">
+                {loading ? (
+                  <div className="space-y-4 p-4">{[...Array(5)].map((_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Captain</TableHead>
+                        <TableHead>Team Leader</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredCaptainUsers.length === 0 ? (
+                        <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No captain credentials found.</TableCell></TableRow>
+                      ) : (
+                        filteredCaptainUsers.map((user) => (
+                          <TableRow key={user.id}>
+                            <TableCell><div className="font-medium">{user.captain?.name || user.email}</div><div className="text-xs text-muted-foreground">{user.captain?.phone || 'No phone'}</div></TableCell>
+                            <TableCell>{user.captain?.team_leader_name || '-'}</TableCell>
+                            <TableCell className="font-mono text-sm">{user.email}</TableCell>
+                            <TableCell><Badge variant={user.user_id ? 'default' : 'secondary'}>{user.user_id ? 'Ready' : 'Not Linked'}</Badge></TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{new Date(user.created_at).toLocaleDateString()}</TableCell>
+                            <TableCell className="text-right"><div className="flex justify-end gap-2"><Button variant="ghost" size="icon" onClick={() => openCaptainDialog(user)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => { setDeleteUser(user); setDeleteDialogOpen(true); }}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </GlassCard>
+          </TabsContent>
+
+          <TabsContent value="dsr" className="mt-6">
+            <GlassCard>
+              <div className="overflow-x-auto">
+                {loading ? (
+                  <div className="space-y-4 p-4">{[...Array(5)].map((_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>DSR</TableHead>
+                        <TableHead>Captain</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredDsrUsers.length === 0 ? (
+                        <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No DSR credentials found.</TableCell></TableRow>
+                      ) : (
+                        filteredDsrUsers.map((user) => (
+                          <TableRow key={user.id}>
+                            <TableCell><div className="font-medium">{user.dsr?.name || user.email}</div><div className="text-xs text-muted-foreground">{user.dsr?.phone || 'No phone'}</div></TableCell>
+                            <TableCell>{user.dsr?.captain_name || '-'}</TableCell>
+                            <TableCell className="font-mono text-sm">{user.email}</TableCell>
+                            <TableCell><Badge variant={user.user_id ? 'default' : 'secondary'}>{user.user_id ? 'Ready' : 'Not Linked'}</Badge></TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{new Date(user.created_at).toLocaleDateString()}</TableCell>
+                            <TableCell className="text-right"><div className="flex justify-end gap-2"><Button variant="ghost" size="icon" onClick={() => openDsrDialog(user)}><Edit className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => { setDeleteUser(user); setDeleteDialogOpen(true); }}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </GlassCard>
+          </TabsContent>
+
+          <TabsContent value="tsm" className="mt-6">
+            <GlassCard>
+              <div className="overflow-x-auto">
+                {loading ? (
+                  <div className="space-y-4 p-4">{[...Array(5)].map((_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>User</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Assigned Regions</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredTsmUsers.length === 0 ? (
+                        <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No TSM credentials found.</TableCell></TableRow>
+                      ) : (
+                        filteredTsmUsers.map((user) => (
+                          <TableRow key={user.id}>
+                            <TableCell>
+                              <div className="font-medium">{user.name || user.email}</div>
+                              {user.name && <div className="text-xs text-muted-foreground">{user.email}</div>}
+                              <Badge variant="outline" className="mt-1">Territory Manager</Badge>
+                            </TableCell>
+                            <TableCell className="font-mono text-sm">{user.email}</TableCell>
+                            <TableCell><Badge variant={user.user_id ? 'default' : 'secondary'}>{user.user_id ? 'Ready' : 'Not Linked'}</Badge></TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1 max-w-xs">
+                                {(user.assigned_regions || []).map((region) => (
+                                  <Badge key={region.id} variant="outline" className="text-xs">
+                                    <MapPin className="h-3 w-3 mr-1" />{region.name}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{new Date(user.created_at).toLocaleDateString()}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button variant="ghost" size="icon" onClick={() => openRegionalDialog(user)}><Edit className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" onClick={() => { setDeleteUser(user); setDeleteDialogOpen(true); }}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </GlassCard>
+          </TabsContent>
+        </Tabs>
       </div>
 
-      {/* Create/Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={regionalDialogOpen} onOpenChange={setRegionalDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingAdmin ? 'Edit Regional Admin' : 'Add Regional Admin'}
+              {editingRegionalUser
+                ? `Edit ${regionalForm.role === 'tsm' ? 'TSM' : 'Regional Admin'} Credential`
+                : `Create ${regionalForm.role === 'tsm' ? 'TSM' : 'Regional Admin'} Credential`}
             </DialogTitle>
+            <DialogDescription>
+              Set the login email and choose the regions this {regionalForm.role === 'tsm' ? 'territory manager' : 'regional admin'} can manage.
+            </DialogDescription>
           </DialogHeader>
-
           <div className="space-y-6 py-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email *</Label>
+                <Label htmlFor="regional-name">Name</Label>
                 <Input
-                  id="email"
-                  type="email"
-                  placeholder="admin@example.com"
-                  value={formData.email}
-                  onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                  id="regional-name"
+                  value={regionalForm.name}
+                  onChange={(event) => setRegionalForm((previous) => ({ ...previous, name: event.target.value }))}
+                  placeholder={regionalForm.role === 'tsm' ? 'Territory manager name' : 'Regional admin name'}
                 />
-                <p className="text-xs text-muted-foreground">
-                  They will use this email to log in
-                </p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  placeholder="Admin Name"
-                  value={formData.name}
-                  onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                />
+                <Label htmlFor="regional-email">Email</Label>
+                <Input id="regional-email" type="email" value={regionalForm.email} onChange={(event) => setRegionalForm((previous) => ({ ...previous, email: event.target.value }))} placeholder="regional.admin@example.com" />
               </div>
             </div>
-
+            {!editingRegionalUser && (
+              <div className="space-y-2">
+                <Label htmlFor="regional-password">Password</Label>
+                <Input id="regional-password" type="password" value={regionalForm.password} onChange={(event) => setRegionalForm((previous) => ({ ...previous, password: event.target.value }))} placeholder="Create a login password" />
+              </div>
+            )}
             <div className="space-y-3">
-              <Label>Assign Regions *</Label>
-              <p className="text-sm text-muted-foreground">
-                Select the regions this admin will manage. They will only see data from these regions.
-              </p>
-              
-              <div className="border rounded-lg max-h-60 overflow-y-auto">
+              <Label>Assign Regions</Label>
+              <p className="text-sm text-muted-foreground">This account must have at least one region. Zones and regions should be created first.</p>
+              <div className="border rounded-lg max-h-64 overflow-y-auto divide-y">
                 {regions.length === 0 ? (
-                  <p className="p-4 text-center text-muted-foreground">
-                    No regions found. Create regions first.
-                  </p>
+                  <div className="p-4 text-center text-muted-foreground">No regions found. Create zones and regions first.</div>
                 ) : (
-                  <div className="divide-y">
-                    {regions.map(region => (
-                      <label
-                        key={region.id}
-                        className="flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer"
-                      >
-                        <Checkbox
-                          checked={formData.selectedRegions.includes(region.id)}
-                          onCheckedChange={() => handleToggleRegion(region.id)}
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium">{region.name}</div>
-                          {region.zones?.name && (
-                            <div className="text-xs text-muted-foreground">
-                              Zone: {region.zones.name}
-                            </div>
-                          )}
-                        </div>
-                        {formData.selectedRegions.includes(region.id) && (
-                          <Check className="h-4 w-4 text-green-500" />
-                        )}
-                      </label>
-                    ))}
-                  </div>
+                  regions.map((region) => (
+                    <label key={region.id} className="flex items-center gap-3 p-3 hover:bg-muted/50 cursor-pointer">
+                      <Checkbox checked={regionalForm.selectedRegions.includes(region.id)} onCheckedChange={() => handleToggleRegion(region.id)} />
+                      <div className="flex-1">
+                        <div className="font-medium">{region.name}</div>
+                        {region.zones?.name && <div className="text-xs text-muted-foreground">Zone: {region.zones.name}</div>}
+                      </div>
+                      {regionalForm.selectedRegions.includes(region.id) && <Check className="h-4 w-4 text-green-500" />}
+                    </label>
+                  ))
                 )}
               </div>
-
-              {formData.selectedRegions.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  <span className="text-sm text-muted-foreground">Selected:</span>
-                  {formData.selectedRegions.map(id => {
-                    const region = regions.find(r => r.id === id);
-                    return region ? (
-                      <Badge key={id} variant="secondary">
-                        {region.name}
-                        <button
-                          type="button"
-                          title={`Remove ${region.name}`}
-                          className="ml-1 hover:text-destructive"
-                          onClick={() => handleToggleRegion(id)}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    ) : null;
-                  })}
-                </div>
-              )}
             </div>
           </div>
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? (
-                <>
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>{editingAdmin ? 'Update' : 'Create'} Admin</>
-              )}
-            </Button>
+            <Button variant="outline" onClick={() => setRegionalDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveRegionalUser} disabled={saving}>{saving ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : null}{editingRegionalUser ? 'Update User' : 'Create User'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation */}
+      <Dialog open={tlDialogOpen} onOpenChange={setTlDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingTLUser ? 'Edit TL Credential' : 'Create TL Credential'}</DialogTitle>
+            <DialogDescription>
+              Link a team leader profile to a login email for admin access.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="team-leader-select">Select Team Leader</Label>
+              <select id="team-leader-select" aria-label="Select team leader" title="Select team leader" value={teamLeaderForm.teamLeaderId} onChange={(event) => setTeamLeaderForm((previous) => ({ ...previous, teamLeaderId: event.target.value }))} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm" disabled={!!editingTLUser}>
+                <option value="">Choose a team leader</option>
+                {availableTeamLeaders.map((teamLeader) => (
+                  <option key={teamLeader.id} value={teamLeader.id}>{teamLeader.name}{teamLeader.regions?.name ? ` - ${teamLeader.regions.name}` : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="tl-email">Email</Label>
+              <Input id="tl-email" type="email" value={teamLeaderForm.email} onChange={(event) => setTeamLeaderForm((previous) => ({ ...previous, email: event.target.value }))} placeholder="teamleader@example.com" />
+            </div>
+            {!editingTLUser && (
+              <div className="space-y-2">
+                <Label htmlFor="tl-password">Password</Label>
+                <Input id="tl-password" type="password" value={teamLeaderForm.password} onChange={(event) => setTeamLeaderForm((previous) => ({ ...previous, password: event.target.value }))} placeholder="Create a login password" />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTlDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleSaveTeamLeaderUser} disabled={saving}>{saving ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : null}{editingTLUser ? 'Update User' : 'Create User'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={captainDialogOpen} onOpenChange={setCaptainDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingCaptainUser ? 'Edit Captain Credential' : 'Create Captain Credential'}</DialogTitle>
+            <DialogDescription>
+              Link a captain profile to a login email for admin access.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="captain-select">Select Captain</Label>
+              <select id="captain-select" aria-label="Select captain" title="Select captain" value={captainForm.captainId} onChange={(event) => setCaptainForm((previous) => ({ ...previous, captainId: event.target.value }))} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm" disabled={!!editingCaptainUser}>
+                <option value="">Choose a captain</option>
+                {availableCaptains.map((captain) => (
+                  <option key={captain.id} value={captain.id}>{captain.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2"><Label htmlFor="captain-email">Email</Label><Input id="captain-email" type="email" value={captainForm.email} onChange={(event) => setCaptainForm((previous) => ({ ...previous, email: event.target.value }))} placeholder="captain@example.com" /></div>
+            {!editingCaptainUser && <div className="space-y-2"><Label htmlFor="captain-password">Password</Label><Input id="captain-password" type="password" value={captainForm.password} onChange={(event) => setCaptainForm((previous) => ({ ...previous, password: event.target.value }))} placeholder="Create a login password" /></div>}
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setCaptainDialogOpen(false)}>Cancel</Button><Button onClick={handleSaveCaptainUser} disabled={saving}>{saving ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : null}{editingCaptainUser ? 'Update User' : 'Create User'}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={dsrDialogOpen} onOpenChange={setDsrDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingDsrUser ? 'Edit DSR Credential' : 'Create DSR Credential'}</DialogTitle>
+            <DialogDescription>
+              Link a DSR profile to a login email for admin access.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="dsr-select">Select DSR</Label>
+              <select id="dsr-select" aria-label="Select dsr" title="Select dsr" value={dsrForm.dsrId} onChange={(event) => setDsrForm((previous) => ({ ...previous, dsrId: event.target.value }))} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm" disabled={!!editingDsrUser}>
+                <option value="">Choose a DSR</option>
+                {availableDsrs.map((dsr) => (
+                  <option key={dsr.id} value={dsr.id}>{dsr.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2"><Label htmlFor="dsr-email">Email</Label><Input id="dsr-email" type="email" value={dsrForm.email} onChange={(event) => setDsrForm((previous) => ({ ...previous, email: event.target.value }))} placeholder="dsr@example.com" /></div>
+            {!editingDsrUser && <div className="space-y-2"><Label htmlFor="dsr-password">Password</Label><Input id="dsr-password" type="password" value={dsrForm.password} onChange={(event) => setDsrForm((previous) => ({ ...previous, password: event.target.value }))} placeholder="Create a login password" /></div>}
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setDsrDialogOpen(false)}>Cancel</Button><Button onClick={handleSaveDsrUser} disabled={saving}>{saving ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : null}{editingDsrUser ? 'Update User' : 'Create User'}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Regional Admin?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove {deleteAdmin?.email} as a regional admin. They will no longer
-              have access to the admin panel. This action cannot be undone.
-            </AlertDialogDescription>
+            <AlertDialogTitle>Remove User Access?</AlertDialogTitle>
+            <AlertDialogDescription>This removes {deleteUser?.email} from the app user list. Their auth account may still exist, but they will no longer have access to this app.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground"
-            >
-              Delete Admin
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleDeleteUser} className="bg-destructive text-destructive-foreground">Delete User</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

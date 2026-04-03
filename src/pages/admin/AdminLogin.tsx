@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Package, Mail, Lock, Loader2, Eye, EyeOff } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/auth-context';
 import GlassCard from '@/components/ui/GlassCard';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -85,7 +85,7 @@ export default function AdminLogin() {
               StockFlow
             </span>
           </h1>
-          <p className="text-muted-foreground mt-2">Admin Portal</p>
+          <p className="text-muted-foreground mt-2">Login Portal</p>
         </div>
 
         {/* Login Form */}

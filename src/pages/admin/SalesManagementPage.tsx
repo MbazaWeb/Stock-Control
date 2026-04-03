@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 // ExcelJS loaded dynamically in exportToExcel
 import AdminLayout from '@/components/layout/AdminLayout';
+import SalesDateFilter from '@/components/SalesDateFilter';
 import GlassCard from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,8 +45,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/auth-context';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  createSalesDateRange,
+  getDefaultSalesDateRange,
+  type SalesDatePreset,
+} from '@/lib/salesDateRange';
+import { getSaleCompletionBadgeClass, getSaleCompletionLabel } from '@/lib/saleCompletion';
 
 interface SalesRecord {
   id: string;
@@ -58,6 +65,7 @@ interface SalesRecord {
   payment_status: string;
   package_status: string;
   team_leader_id: string | null;
+  dsr_id: string | null;
   region_id: string | null;
   notes: string | null;
   created_at: string;
@@ -66,6 +74,7 @@ interface SalesRecord {
 }
 
 export default function SalesManagementPage() {
+  const defaultSalesDateRange = getDefaultSalesDateRange();
   const { toast } = useToast();
   const { isRegionalAdmin, assignedRegionIds } = useAuth();
   const [sales, setSales] = useState<SalesRecord[]>([]);
@@ -79,6 +88,11 @@ export default function SalesManagementPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
+  const [salesDateFrom, setSalesDateFrom] = useState(defaultSalesDateRange.startDate);
+  const [salesDateTo, setSalesDateTo] = useState(defaultSalesDateRange.endDate);
+
+  const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -91,6 +105,8 @@ export default function SalesManagementPage() {
           team_leaders:team_leader_id(name),
           regions:region_id(name)
         `)
+        .gte('sale_date', salesDateRange.startDate)
+        .lte('sale_date', salesDateRange.endDate)
         .order('sale_date', { ascending: false })
         .limit(500);
       
@@ -121,11 +137,18 @@ export default function SalesManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [toast, isRegionalAdmin, assignedRegionIds]);
+  }, [toast, isRegionalAdmin, assignedRegionIds, salesDateRange.startDate, salesDateRange.endDate]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const handleSalesDatePresetChange = (preset: SalesDatePreset) => {
+    const nextRange = createSalesDateRange(preset, salesDateFrom, salesDateTo);
+    setSalesDatePreset(preset);
+    setSalesDateFrom(nextRange.startDate);
+    setSalesDateTo(nextRange.endDate);
+  };
 
   const updatePaymentStatus = async (id: string, newStatus: string) => {
     setUpdating(id);
@@ -313,6 +336,7 @@ export default function SalesManagementPage() {
       { header: 'Sale Date', key: 'date', width: 12 },
       { header: 'Payment', key: 'payment', width: 10 },
       { header: 'Package', key: 'package', width: 12 },
+      { header: 'Completion', key: 'completion', width: 22 },
       { header: 'Team Leader', key: 'tl', width: 20 },
       { header: 'Region', key: 'region', width: 15 },
     ];
@@ -327,6 +351,7 @@ export default function SalesManagementPage() {
         date: sale.sale_date,
         payment: sale.payment_status,
         package: sale.package_status,
+        completion: getSaleCompletionLabel(sale.dsr_id),
         tl: sale.team_leaders?.name || '',
         region: sale.regions?.name || '',
       });
@@ -453,6 +478,14 @@ export default function SalesManagementPage() {
                 ))}
               </SelectContent>
             </Select>
+            <SalesDateFilter
+              preset={salesDatePreset}
+              startDate={salesDateFrom}
+              endDate={salesDateTo}
+              onPresetChange={handleSalesDatePresetChange}
+              onStartDateChange={setSalesDateFrom}
+              onEndDateChange={setSalesDateTo}
+            />
           </div>
         </GlassCard>
 
@@ -532,9 +565,9 @@ export default function SalesManagementPage() {
           </GlassCard>
           <GlassCard className="p-4 text-center">
             <p className="text-2xl font-bold text-blue-600">
-              {filteredSales.filter(s => s.package_status === 'Packaged').length}
+              {filteredSales.filter(s => !s.dsr_id).length}
             </p>
-            <p className="text-sm text-muted-foreground">Packaged</p>
+            <p className="text-sm text-muted-foreground">Incomplete</p>
           </GlassCard>
         </div>
 
@@ -568,13 +601,14 @@ export default function SalesManagementPage() {
                     <TableHead>Region</TableHead>
                     <TableHead>Payment</TableHead>
                     <TableHead>Package</TableHead>
+                    <TableHead>Completion</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredSales.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-8">
+                      <TableCell colSpan={11} className="text-center py-8">
                         <p className="text-muted-foreground">No sales records found</p>
                       </TableCell>
                     </TableRow>
@@ -656,6 +690,11 @@ export default function SalesManagementPage() {
                               {sale.package_status}
                             </Badge>
                           </button>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={getSaleCompletionBadgeClass(sale.dsr_id)}>
+                            {getSaleCompletionLabel(sale.dsr_id)}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-right">
                           <Button

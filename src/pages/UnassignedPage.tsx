@@ -1,6 +1,7 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { Package, Search, Filter, Plus, X, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import SalesDateFilter from '@/components/SalesDateFilter';
 import { supabase } from '@/integrations/supabase/client';
 import PublicLayout from '@/components/layout/PublicLayout';
 import GlassCard from '@/components/ui/GlassCard';
@@ -29,6 +30,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  createSalesDateRange,
+  describeSalesDateRange,
+  getDefaultSalesDateRange,
+  isDateWithinSalesRange,
+  type SalesDatePreset,
+} from '@/lib/salesDateRange';
 
 interface Zone { id: string; name: string; }
 interface Region { id: string; name: string; zone_id: string; }
@@ -62,7 +70,52 @@ interface StockItem {
   dsr_id: string | null;
 }
 
+interface LocationRef {
+  id: string;
+  name: string;
+}
+
+interface NameRef {
+  id: string;
+  name: string;
+}
+
+interface InventoryRow {
+  id: string;
+  smartcard_number: string;
+  serial_number: string;
+  stock_type: string;
+  status: string;
+  payment_status: string | null;
+  package_status: string | null;
+  notes: string | null;
+  created_at: string;
+  assigned_to_type: string | null;
+  assigned_to_id: string | null;
+  zones: LocationRef | null;
+  regions: LocationRef | null;
+}
+
+interface SaleRow {
+  id: string;
+  smartcard_number: string;
+  serial_number: string;
+  stock_type: string;
+  payment_status: string | null;
+  package_status: string | null;
+  sale_date: string | null;
+  customer_name: string | null;
+  notes: string | null;
+  created_at: string;
+  team_leaders: NameRef | null;
+  captains: NameRef | null;
+  dsrs: NameRef | null;
+  zones: LocationRef | null;
+  regions: LocationRef | null;
+}
+
 export default function UnassignedPage() {
+  const defaultSalesDateRange = getDefaultSalesDateRange();
   const navigate = useNavigate();
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,10 +137,12 @@ export default function UnassignedPage() {
   const [teamLeaders, setTeamLeaders] = useState<TeamLeader[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [dsrs, setDsrs] = useState<DSR[]>([]);
+  const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
+  const [salesDateFrom, setSalesDateFrom] = useState(defaultSalesDateRange.startDate);
+  const [salesDateTo, setSalesDateTo] = useState(defaultSalesDateRange.endDate);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
+  const salesDateLabel = describeSalesDateRange(salesDateRange);
 
   // Reset dependent filters when parent changes
   useEffect(() => { setRegionFilter('all'); setTlFilter('all'); setCaptainFilter('all'); setDsrFilter('all'); }, [zoneFilter]);
@@ -95,7 +150,14 @@ export default function UnassignedPage() {
   useEffect(() => { setCaptainFilter('all'); setDsrFilter('all'); }, [tlFilter]);
   useEffect(() => { setDsrFilter('all'); }, [captainFilter]);
 
-  const fetchData = async () => {
+  const handleSalesDatePresetChange = (preset: SalesDatePreset) => {
+    const nextRange = createSalesDateRange(preset, salesDateFrom, salesDateTo);
+    setSalesDatePreset(preset);
+    setSalesDateFrom(nextRange.startDate);
+    setSalesDateTo(nextRange.endDate);
+  };
+
+  const fetchData = useCallback(async () => {
     try {
       const [zonesRes, regionsRes, tlRes, captainsRes, dsrsRes, inventoryRes, salesRes] = await Promise.all([
         supabase.from('zones').select('id, name').order('name'),
@@ -116,7 +178,10 @@ export default function UnassignedPage() {
           dsrs:dsr_id(id, name),
           zones:zone_id(id, name),
           regions:region_id(id, name)
-        `).order('created_at', { ascending: false }),
+        `)
+        .gte('sale_date', salesDateRange.startDate)
+        .lte('sale_date', salesDateRange.endDate)
+        .order('created_at', { ascending: false }),
       ]);
 
       setZones(zonesRes.data || []);
@@ -139,9 +204,9 @@ export default function UnassignedPage() {
       const zoneMap = new Map(allZones.map(z => [z.id, z]));
 
       // Process inventory items - resolve full hierarchy
-      const inventoryItems: StockItem[] = (inventoryRes.data || []).map((item: any) => {
-        const zoneData = item.zones as any;
-        const regionData = item.regions as any;
+      const inventoryItems: StockItem[] = (inventoryRes.data as InventoryRow[] || []).map((item) => {
+        const zoneData = item.zones;
+        const regionData = item.regions;
         let tl_name: string | null = null;
         let captain_name: string | null = null;
         let dsr_name: string | null = null;
@@ -204,12 +269,12 @@ export default function UnassignedPage() {
       });
 
       // Process sales items
-      const salesItems: StockItem[] = (salesRes.data || []).map((item: any) => {
-        const zoneData = item.zones as any;
-        const regionData = item.regions as any;
-        const tlData = item.team_leaders as any;
-        const capData = item.captains as any;
-        const dsrData = item.dsrs as any;
+      const salesItems: StockItem[] = (salesRes.data as SaleRow[] || []).map((item) => {
+        const zoneData = item.zones;
+        const regionData = item.regions;
+        const tlData = item.team_leaders;
+        const capData = item.captains;
+        const dsrData = item.dsrs;
 
         // Resolve parent chain for sales TL
         let tl_name = tlData?.name || null;
@@ -264,7 +329,11 @@ export default function UnassignedPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [salesDateRange.endDate, salesDateRange.startDate]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   // Filter options based on parent selection
   const filteredRegions = useMemo(() =>
@@ -337,7 +406,7 @@ export default function UnassignedPage() {
               </span>
             </h1>
             <p className="text-xs md:text-base text-muted-foreground mt-0.5">
-              {filteredItems.length} of {stockItems.length} items
+              {filteredItems.length} of {stockItems.length} items • sales filtered to {salesDateLabel.toLowerCase()}
             </p>
           </div>
           <Button onClick={() => navigate('/add-sale')} className="self-start">
@@ -412,6 +481,14 @@ export default function UnassignedPage() {
                 <SelectItem value="Unpaid">Unpaid</SelectItem>
               </SelectContent>
             </Select>
+            <SalesDateFilter
+              preset={salesDatePreset}
+              startDate={salesDateFrom}
+              endDate={salesDateTo}
+              onPresetChange={handleSalesDatePresetChange}
+              onStartDateChange={setSalesDateFrom}
+              onEndDateChange={setSalesDateTo}
+            />
             {hasActiveFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 text-xs">
                 <X className="h-3 w-3 mr-1" /> Clear
@@ -431,7 +508,7 @@ export default function UnassignedPage() {
           ) : filteredItems.length === 0 ? (
             <div className="p-12 text-center">
               <Package className="h-16 w-16 mx-auto text-muted-foreground/50" />
-              <p className="text-muted-foreground mt-4">No stock items found</p>
+              <p className="text-muted-foreground mt-4">No stock items found for the current filters</p>
             </div>
           ) : (
             <div className="overflow-x-auto">

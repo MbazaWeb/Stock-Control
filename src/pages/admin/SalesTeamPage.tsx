@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Plus,
   Trash2,
@@ -41,7 +42,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/auth-context';
 import { supabase } from '@/integrations/supabase/client';
 
 interface TeamLeader {
@@ -85,14 +86,32 @@ interface Zone {
   name: string;
 }
 
+interface TsmUser {
+  id: string;
+  name: string | null;
+  email: string;
+  assigned_regions: Array<{ id: string; name: string }>;
+}
+
+const isMissingAdminUserNameColumn = (error: unknown) => {
+  if (!error || typeof error !== 'object') return false;
+  if (!('code' in error) || !('message' in error)) return false;
+  return error.code === '42703' && typeof error.message === 'string' && error.message.includes('admin_users.name');
+};
+
 export default function SalesTeamPage() {
   const { toast } = useToast();
-  const { isRegionalAdmin, assignedRegionIds } = useAuth();
+  const { adminUser, isSuperAdmin, isRegionalAdmin, isTSM, assignedRegionIds } = useAuth();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+
+  const isRegionScopedManager = isRegionalAdmin || isTSM;
+  const canCreateTsmCredentials = isSuperAdmin || adminUser?.role === 'admin';
 
   const [teamLeaders, setTeamLeaders] = useState<TeamLeader[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [dsrs, setDsrs] = useState<DSR[]>([]);
+  const [tsmUsers, setTsmUsers] = useState<TsmUser[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [zoneFilter, setZoneFilter] = useState('all');
@@ -127,39 +146,82 @@ export default function SalesTeamPage() {
   // Expanded rows for hierarchy view
   const [expandedTLs, setExpandedTLs] = useState<string[]>([]);
   const [expandedCaptains, setExpandedCaptains] = useState<string[]>([]);
+  const [expandedTsms, setExpandedTsms] = useState<string[]>([]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [tlRes, captainRes, dsrRes, regionRes, zonesRes] = await Promise.all([
+      const [tlRes, captainRes, dsrRes, regionRes, zonesRes, tsmRes] = await Promise.all([
         supabase.from('team_leaders').select('*').order('name'),
         supabase.from('captains').select('*').order('name'),
         supabase.from('dsrs').select('*').order('name'),
         supabase.from('regions').select('id, name, zone_id').order('name'),
         supabase.from('zones').select('id, name').order('name'),
+        (async () => {
+          const withName = await supabase.from('admin_users').select('id, name, email').eq('role', 'tsm').order('name');
+          if (!withName.error) return withName;
+          if (!isMissingAdminUserNameColumn(withName.error)) return withName;
+
+          const withoutName = await supabase.from('admin_users').select('id, email').eq('role', 'tsm').order('email');
+          if (withoutName.error) return withoutName;
+
+          return {
+            ...withoutName,
+            data: (withoutName.data || []).map((user) => ({ ...user, name: null })),
+          };
+        })(),
       ]);
 
       if (zonesRes.data) setZones(zonesRes.data);
 
-      // For regional admins, filter team leaders by assigned regions
+      if (tsmRes.data && tsmRes.data.length > 0) {
+        const tsmIds = tsmRes.data.map((user) => user.id);
+        const { data: assignmentRows } = await supabase
+          .from('admin_region_assignments')
+          .select('admin_id, regions:region_id(id, name)')
+          .in('admin_id', tsmIds);
+
+        const assignmentMap = new Map<string, Array<{ id: string; name: string }>>();
+        for (const assignment of assignmentRows || []) {
+          const region = assignment.regions;
+          if (!region) continue;
+          const existing = assignmentMap.get(assignment.admin_id) || [];
+          existing.push(region);
+          assignmentMap.set(assignment.admin_id, existing);
+        }
+
+        const scopedTsms = tsmRes.data
+          .map((user) => ({
+            id: user.id,
+            name: user.name || null,
+            email: user.email,
+            assigned_regions: assignmentMap.get(user.id) || [],
+          }))
+          .filter((user) => !isRegionScopedManager || user.assigned_regions.some((region) => assignedRegionIds.includes(region.id)));
+
+        setTsmUsers(scopedTsms);
+      } else {
+        setTsmUsers([]);
+      }
+
+      // Region-scoped managers only work inside their assigned regions.
       if (tlRes.data) {
-        const filteredTLs = isRegionalAdmin && assignedRegionIds.length > 0
+        const filteredTLs = isRegionScopedManager && assignedRegionIds.length > 0
           ? tlRes.data.filter(tl => tl.region_id && assignedRegionIds.includes(tl.region_id))
           : tlRes.data;
         setTeamLeaders(filteredTLs);
         
-        // Also filter captains by the TLs in assigned regions
+        // Keep downstream hierarchy lists aligned to the scoped TL set.
         if (captainRes.data) {
           const tlIds = filteredTLs.map(tl => tl.id);
-          const filteredCaptains = isRegionalAdmin && assignedRegionIds.length > 0
+          const filteredCaptains = isRegionScopedManager && assignedRegionIds.length > 0
             ? captainRes.data.filter(c => c.team_leader_id && tlIds.includes(c.team_leader_id))
             : captainRes.data;
           setCaptains(filteredCaptains);
           
-          // Also filter DSRs by the filtered captains
           if (dsrRes.data) {
             const captainIds = filteredCaptains.map(c => c.id);
-            const filteredDSRs = isRegionalAdmin && assignedRegionIds.length > 0
+            const filteredDSRs = isRegionScopedManager && assignedRegionIds.length > 0
               ? dsrRes.data.filter(d => d.captain_id && captainIds.includes(d.captain_id))
               : dsrRes.data;
             setDsrs(filteredDSRs);
@@ -170,9 +232,8 @@ export default function SalesTeamPage() {
         if (dsrRes.data) setDsrs(dsrRes.data);
       }
       
-      // For regional admins, only show their assigned regions
       if (regionRes.data) {
-        const filteredRegions = isRegionalAdmin && assignedRegionIds.length > 0
+        const filteredRegions = isRegionScopedManager && assignedRegionIds.length > 0
           ? regionRes.data.filter(r => assignedRegionIds.includes(r.id))
           : regionRes.data;
         setRegions(filteredRegions);
@@ -203,6 +264,14 @@ export default function SalesTeamPage() {
   const filteredCaptains = captains.filter(c => c.team_leader_id && filteredTLIds.includes(c.team_leader_id));
   const filteredCaptainIds = filteredCaptains.map(c => c.id);
   const filteredDsrs = dsrs.filter(d => d.captain_id && filteredCaptainIds.includes(d.captain_id));
+  const visibleRegionIds = regionFilter !== 'all'
+    ? [regionFilter]
+    : zoneFilter !== 'all'
+      ? regions.filter((region) => region.zone_id === zoneFilter).map((region) => region.id)
+      : regions.map((region) => region.id);
+  const filteredTsmUsers = tsmUsers.filter((user) =>
+    user.assigned_regions.some((region) => visibleRegionIds.includes(region.id))
+  );
 
   // Team Leader handlers
   const handleTLSubmit = async () => {
@@ -453,6 +522,10 @@ setDsrForm({ name: '', phone: '', captain_id: '', dsr_number: '', has_fss_accoun
     setExpandedCaptains((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
   };
 
+  const toggleTSM = (id: string) => {
+    setExpandedTsms((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
+  };
+
   // Parse DSR list when text changes
   useEffect(() => {
     parseDsrList();
@@ -485,12 +558,18 @@ setDsrForm({ name: '', phone: '', captain_id: '', dsr_number: '', has_fss_accoun
                 Sales Team Management
               </span>
             </h1>
-            <p className="text-muted-foreground mt-1">Manage Team Leaders, Captains, and DSRs</p>
+            <p className="text-muted-foreground mt-1">Manage the sales hierarchy from TSM to TL, Captain, and DSR</p>
           </div>
+          {isTSM && <Badge variant="outline">Territory Manager Scope</Badge>}
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <GlassCard className="text-center">
+            <Users className="h-8 w-8 mx-auto text-primary mb-2" />
+            <p className="text-2xl font-bold">{filteredTsmUsers.length}</p>
+            <p className="text-xs text-muted-foreground">TSMs</p>
+          </GlassCard>
           <GlassCard className="text-center">
             <Users className="h-8 w-8 mx-auto text-primary mb-2" />
             <p className="text-2xl font-bold">{filteredTeamLeaders.length}</p>
@@ -544,6 +623,11 @@ setDsrForm({ name: '', phone: '', captain_id: '', dsr_number: '', has_fss_accoun
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">Team Structure</h3>
                 <div className="flex gap-2">
+                  {canCreateTsmCredentials && (
+                    <Button size="sm" variant="outline" onClick={() => navigate('/admin/regional-admins?tab=tsm')}>
+                      <Plus className="w-4 h-4 mr-1" /> TSM
+                    </Button>
+                  )}
                   <Button size="sm" onClick={() => setTlDialogOpen(true)}>
                     <Plus className="w-4 h-4 mr-1" /> Team Leader
                   </Button>
@@ -558,174 +642,220 @@ setDsrForm({ name: '', phone: '', captain_id: '', dsr_number: '', has_fss_accoun
                   </Button>
                 </div>
               </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                TSM credentials are created from the Users page. Team records below are grouped as TSM, then TL, then Captain, then DSR.
+              </p>
 
               <div className="space-y-2">
-                {filteredTeamLeaders.map((tl) => {
-                  const tlCaptains = filteredCaptains.filter((c) => c.team_leader_id === tl.id);
-                  const isExpanded = expandedTLs.includes(tl.id);
+                {filteredTsmUsers.map((tsm) => {
+                  const tsmRegionIds = tsm.assigned_regions.map((region) => region.id);
+                  const tsmTeamLeaders = filteredTeamLeaders.filter((tl) => tl.region_id && tsmRegionIds.includes(tl.region_id));
+                  const isTsmExpanded = expandedTsms.includes(tsm.id);
 
                   return (
-                    <div key={tl.id} className="border border-border/50 rounded-xl overflow-hidden">
+                    <div key={tsm.id} className="border border-border/50 rounded-xl overflow-hidden">
                       <div
-                        className="flex items-center justify-between p-4 bg-primary/5 cursor-pointer hover:bg-primary/10"
-                        onClick={() => toggleTL(tl.id)}
+                        className="flex items-center justify-between p-4 bg-amber-500/10 cursor-pointer hover:bg-amber-500/15"
+                        onClick={() => toggleTSM(tsm.id)}
                       >
                         <div className="flex items-center gap-3">
-                          {isExpanded ? (
-                            <ChevronDown className="h-5 w-5 text-primary" />
+                          {isTsmExpanded ? (
+                            <ChevronDown className="h-5 w-5 text-amber-600" />
                           ) : (
-                            <ChevronRight className="h-5 w-5 text-primary" />
+                            <ChevronRight className="h-5 w-5 text-amber-600" />
                           )}
-                          <Users className="h-5 w-5 text-primary" />
+                          <Users className="h-5 w-5 text-amber-600" />
                           <div>
-                            <span className="font-semibold">{tl.name}</span>
-                            <Badge className="ml-2 bg-primary/20 text-primary text-xs">TL</Badge>
+                            <span className="font-semibold">{tsm.name || tsm.email}</span>
+                            {tsm.name && <div className="text-xs text-muted-foreground">{tsm.email}</div>}
+                            <Badge className="ml-2 bg-amber-500/20 text-amber-700 text-xs">TSM</Badge>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {tl.phone && (
-                            <span className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Phone className="h-3 w-3" /> {tl.phone}
-                            </span>
-                          )}
-                          <Badge variant="outline">{tlCaptains.length} Captains</Badge>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingTL(tl);
-                              setTlForm({ name: tl.name, phone: tl.phone || '', region_id: tl.region_id || '' });
-                              setTlDialogOpen(true);
-                            }}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeleteTarget({ type: 'TL', id: tl.id, name: tl.name });
-                              setDeleteDialogOpen(true);
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                        <div className="flex items-center gap-2 flex-wrap justify-end">
+                          {tsm.assigned_regions.map((region) => (
+                            <Badge key={region.id} variant="outline">{region.name}</Badge>
+                          ))}
+                          <Badge variant="outline">{tsmTeamLeaders.length} TLs</Badge>
                         </div>
                       </div>
 
-                      {isExpanded && (
-                        <div className="pl-8 border-t border-border/30">
-                          {tlCaptains.length === 0 ? (
-                            <p className="text-sm text-muted-foreground p-4">No captains assigned</p>
+                      {isTsmExpanded && (
+                        <div className="pl-6 border-t border-border/30 space-y-2 py-2">
+                          {tsmTeamLeaders.length === 0 ? (
+                            <p className="text-sm text-muted-foreground p-4">No team leaders in this TSM scope</p>
                           ) : (
-                            tlCaptains.map((captain) => {
-                              const captainDsrs = filteredDsrs.filter((d) => d.captain_id === captain.id);
-                              const isCaptainExpanded = expandedCaptains.includes(captain.id);
+                            tsmTeamLeaders.map((tl) => {
+                              const tlCaptains = filteredCaptains.filter((c) => c.team_leader_id === tl.id);
+                              const isExpanded = expandedTLs.includes(tl.id);
 
                               return (
-                                <div key={captain.id} className="border-b border-border/20 last:border-0">
+                                <div key={tl.id} className="border border-border/50 rounded-xl overflow-hidden ml-2">
                                   <div
-                                    className="flex items-center justify-between p-3 cursor-pointer hover:bg-secondary/5"
-                                    onClick={() => toggleCaptain(captain.id)}
+                                    className="flex items-center justify-between p-4 bg-primary/5 cursor-pointer hover:bg-primary/10"
+                                    onClick={() => toggleTL(tl.id)}
                                   >
                                     <div className="flex items-center gap-3">
-                                      {isCaptainExpanded ? (
-                                        <ChevronDown className="h-4 w-4 text-secondary" />
+                                      {isExpanded ? (
+                                        <ChevronDown className="h-5 w-5 text-primary" />
                                       ) : (
-                                        <ChevronRight className="h-4 w-4 text-secondary" />
+                                        <ChevronRight className="h-5 w-5 text-primary" />
                                       )}
-                                      <UserPlus className="h-4 w-4 text-secondary" />
-                                      <span className="font-medium">{captain.name}</span>
-                                      <Badge className="bg-secondary/20 text-secondary text-xs">Captain</Badge>
+                                      <Users className="h-5 w-5 text-primary" />
+                                      <div>
+                                        <span className="font-semibold">{tl.name}</span>
+                                        <Badge className="ml-2 bg-primary/20 text-primary text-xs">TL</Badge>
+                                      </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                      <Badge variant="outline">{captainDsrs.length} DSRs</Badge>
+                                      {tl.phone && (
+                                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                          <Phone className="h-3 w-3" /> {tl.phone}
+                                        </span>
+                                      )}
+                                      <Badge variant="outline">{tlCaptains.length} Captains</Badge>
                                       <Button
                                         size="icon"
                                         variant="ghost"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setEditingCaptain(captain);
-                                          setCaptainForm({
-                                            name: captain.name,
-                                            phone: captain.phone || '',
-                                            team_leader_id: captain.team_leader_id || '',
-                                          });
-                                          setCaptainDialogOpen(true);
+                                          setEditingTL(tl);
+                                          setTlForm({ name: tl.name, phone: tl.phone || '', region_id: tl.region_id || '' });
+                                          setTlDialogOpen(true);
                                         }}
                                       >
-                                        <Edit className="h-3 w-3" />
+                                        <Edit className="h-4 w-4" />
                                       </Button>
                                       <Button
                                         size="icon"
                                         variant="ghost"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          setDeleteTarget({ type: 'Captain', id: captain.id, name: captain.name });
+                                          setDeleteTarget({ type: 'TL', id: tl.id, name: tl.name });
                                           setDeleteDialogOpen(true);
                                         }}
                                       >
-                                        <Trash2 className="h-3 w-3 text-destructive" />
+                                        <Trash2 className="h-4 w-4 text-destructive" />
                                       </Button>
                                     </div>
                                   </div>
 
-                                  {isCaptainExpanded && (
-                                    <div className="pl-8 bg-muted/20">
-                                      {captainDsrs.length === 0 ? (
-                                        <p className="text-xs text-muted-foreground p-3">No DSRs assigned</p>
+                                  {isExpanded && (
+                                    <div className="pl-8 border-t border-border/30">
+                                      {tlCaptains.length === 0 ? (
+                                        <p className="text-sm text-muted-foreground p-4">No captains assigned</p>
                                       ) : (
-                                        captainDsrs.map((dsr) => (
-                                          <div
-                                            key={dsr.id}
-                                            className="flex items-center justify-between p-2 border-b border-border/10 last:border-0"
-                                          >
-                                            <div className="flex items-center gap-2">
-                                              <Users className="h-3 w-3 text-muted-foreground" />
-                                              <span className="text-sm">{dsr.name}</span>
-                                              {dsr.phone && (
-                                                <span className="text-xs text-muted-foreground">({dsr.phone})</span>
+                                        tlCaptains.map((captain) => {
+                                          const captainDsrs = filteredDsrs.filter((d) => d.captain_id === captain.id);
+                                          const isCaptainExpanded = expandedCaptains.includes(captain.id);
+
+                                          return (
+                                            <div key={captain.id} className="border-b border-border/20 last:border-0">
+                                              <div
+                                                className="flex items-center justify-between p-3 cursor-pointer hover:bg-secondary/5"
+                                                onClick={() => toggleCaptain(captain.id)}
+                                              >
+                                                <div className="flex items-center gap-3">
+                                                  {isCaptainExpanded ? (
+                                                    <ChevronDown className="h-4 w-4 text-secondary" />
+                                                  ) : (
+                                                    <ChevronRight className="h-4 w-4 text-secondary" />
+                                                  )}
+                                                  <UserPlus className="h-4 w-4 text-secondary" />
+                                                  <span className="font-medium">{captain.name}</span>
+                                                  <Badge className="bg-secondary/20 text-secondary text-xs">Captain</Badge>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                  <Badge variant="outline">{captainDsrs.length} DSRs</Badge>
+                                                  <Button
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      setEditingCaptain(captain);
+                                                      setCaptainForm({
+                                                        name: captain.name,
+                                                        phone: captain.phone || '',
+                                                        team_leader_id: captain.team_leader_id || '',
+                                                      });
+                                                      setCaptainDialogOpen(true);
+                                                    }}
+                                                  >
+                                                    <Edit className="h-3 w-3" />
+                                                  </Button>
+                                                  <Button
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      setDeleteTarget({ type: 'Captain', id: captain.id, name: captain.name });
+                                                      setDeleteDialogOpen(true);
+                                                    }}
+                                                  >
+                                                    <Trash2 className="h-3 w-3 text-destructive" />
+                                                  </Button>
+                                                </div>
+                                              </div>
+
+                                              {isCaptainExpanded && (
+                                                <div className="pl-8 bg-muted/20">
+                                                  {captainDsrs.length === 0 ? (
+                                                    <p className="text-xs text-muted-foreground p-3">No DSRs assigned</p>
+                                                  ) : (
+                                                    captainDsrs.map((dsr) => (
+                                                      <div
+                                                        key={dsr.id}
+                                                        className="flex items-center justify-between p-2 border-b border-border/10 last:border-0"
+                                                      >
+                                                        <div className="flex items-center gap-2">
+                                                          <Users className="h-3 w-3 text-muted-foreground" />
+                                                          <span className="text-sm">{dsr.name}</span>
+                                                          {dsr.phone && (
+                                                            <span className="text-xs text-muted-foreground">({dsr.phone})</span>
+                                                          )}
+                                                        </div>
+                                                        <div className="flex gap-1">
+                                                          <Button
+                                                            size="icon"
+                                                            variant="ghost"
+                                                            className="h-6 w-6"
+                                                            onClick={() => {
+                                                              setEditingDSR(dsr);
+                                                              setDsrForm({
+                                                                name: dsr.name,
+                                                                phone: dsr.phone || '',
+                                                                captain_id: dsr.captain_id || '',
+                                                                dsr_number: dsr.dsr_number || '',
+                                                                has_fss_account: dsr.has_fss_account || false,
+                                                                fss_username: dsr.fss_username || '',
+                                                                district: dsr.district || '',
+                                                                ward: dsr.ward || '',
+                                                                street_village: dsr.street_village || '',
+                                                              });
+                                                              setDsrDialogOpen(true);
+                                                            }}
+                                                          >
+                                                            <Edit className="h-3 w-3" />
+                                                          </Button>
+                                                          <Button
+                                                            size="icon"
+                                                            variant="ghost"
+                                                            className="h-6 w-6"
+                                                            onClick={() => {
+                                                              setDeleteTarget({ type: 'DSR', id: dsr.id, name: dsr.name });
+                                                              setDeleteDialogOpen(true);
+                                                            }}
+                                                          >
+                                                            <Trash2 className="h-3 w-3 text-destructive" />
+                                                          </Button>
+                                                        </div>
+                                                      </div>
+                                                    ))
+                                                  )}
+                                                </div>
                                               )}
                                             </div>
-                                            <div className="flex gap-1">
-                                              <Button
-                                                size="icon"
-                                                variant="ghost"
-                                                className="h-6 w-6"
-                                                onClick={() => {
-                                                  setEditingDSR(dsr);
-                                                  setDsrForm({
-                                                    name: dsr.name,
-                                                    phone: dsr.phone || '',
-                                                    captain_id: dsr.captain_id || '',
-                                                    dsr_number: dsr.dsr_number || '',
-                                                    has_fss_account: dsr.has_fss_account || false,
-                                                    fss_username: dsr.fss_username || '',
-                                                    district: dsr.district || '',
-                                                    ward: dsr.ward || '',
-                                                    street_village: dsr.street_village || '',
-                                                  });
-                                                  setDsrDialogOpen(true);
-                                                }}
-                                              >
-                                                <Edit className="h-3 w-3" />
-                                              </Button>
-                                              <Button
-                                                size="icon"
-                                                variant="ghost"
-                                                className="h-6 w-6"
-                                                onClick={() => {
-                                                  setDeleteTarget({ type: 'DSR', id: dsr.id, name: dsr.name });
-                                                  setDeleteDialogOpen(true);
-                                                }}
-                                              >
-                                                <Trash2 className="h-3 w-3 text-destructive" />
-                                              </Button>
-                                            </div>
-                                          </div>
-                                        ))
+                                          );
+                                        })
                                       )}
                                     </div>
                                   )}
@@ -738,6 +868,27 @@ setDsrForm({ name: '', phone: '', captain_id: '', dsr_number: '', has_fss_accoun
                     </div>
                   );
                 })}
+
+                {filteredTeamLeaders.filter((tl) => !filteredTsmUsers.some((tsm) => tsm.assigned_regions.some((region) => region.id === tl.region_id))).length > 0 && (
+                  <div className="border border-border/50 rounded-xl overflow-hidden">
+                    <div className="p-4 bg-muted/20">
+                      <span className="font-semibold text-muted-foreground">Unassigned Team Leaders</span>
+                    </div>
+                    <div className="p-4 space-y-2">
+                      {filteredTeamLeaders
+                        .filter((tl) => !filteredTsmUsers.some((tsm) => tsm.assigned_regions.some((region) => region.id === tl.region_id)))
+                        .map((tl) => (
+                          <div key={tl.id} className="flex items-center justify-between p-2 bg-muted/10 rounded-lg">
+                            <div>
+                              <div className="font-medium">{tl.name}</div>
+                              <div className="text-xs text-muted-foreground">{tl.region_id ? regions.find((region) => region.id === tl.region_id)?.name || 'Unknown region' : 'No region'}</div>
+                            </div>
+                            <Badge variant="outline">No TSM credential assigned to this region</Badge>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Unassigned Captains */}
                 {captains.filter((c) => !c.team_leader_id).length > 0 && (

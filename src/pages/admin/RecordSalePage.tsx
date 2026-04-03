@@ -43,8 +43,19 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/hooks/auth-context';
 import { supabase } from '@/integrations/supabase/client';
+import SalesDateFilter from '@/components/SalesDateFilter';
+import {
+  createSalesDateRange,
+  describeSalesDateRange,
+  getDefaultSalesDateRange,
+  type SalesDatePreset,
+} from '@/lib/salesDateRange';
+import {
+  getSaleCompletionBadgeClass,
+  getSaleCompletionLabel,
+} from '@/lib/saleCompletion';
 
 interface SaleRecord {
   id: string;
@@ -56,6 +67,8 @@ interface SaleRecord {
   payment_status: string;
   package_status: string;
   team_leader_id: string | null;
+  captain_id: string | null;
+  dsr_id: string | null;
   region_id: string | null;
   zone_id: string | null;
   inventory_id: string | null;
@@ -65,6 +78,19 @@ interface TeamLeader {
   id: string;
   name: string;
   region_id: string | null;
+}
+
+interface Captain {
+  id: string;
+  name: string;
+  team_leader_id: string | null;
+}
+
+interface DSR {
+  id: string;
+  name: string;
+  captain_id: string | null;
+  dsr_number: string | null;
 }
 
 interface Region {
@@ -88,14 +114,20 @@ interface InventoryItem {
 export default function RecordSalePage() {
   const { toast } = useToast();
   const { isRegionalAdmin, assignedRegionIds } = useAuth();
+  const defaultSalesDateRange = getDefaultSalesDateRange();
   const [loading, setLoading] = useState(true);
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [teamLeaders, setTeamLeaders] = useState<TeamLeader[]>([]);
+  const [captains, setCaptains] = useState<Captain[]>([]);
+  const [dsrs, setDsrs] = useState<DSR[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
   const [zones, setZones] = useState<Zone[]>([]);
   const [tlStock, setTlStock] = useState<InventoryItem[]>([]);
   const [zoneFilter, setZoneFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
+  const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
+  const [salesDateFrom, setSalesDateFrom] = useState(defaultSalesDateRange.startDate);
+  const [salesDateTo, setSalesDateTo] = useState(defaultSalesDateRange.endDate);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -109,30 +141,44 @@ export default function RecordSalePage() {
   const [formData, setFormData] = useState({
     region_id: '',
     team_leader_id: '',
+    captain_id: '',
+    dsr_id: '',
     inventory_id: '',
     package_status: 'No Package',
     payment_status: 'Unpaid',
     sale_date: new Date().toISOString().split('T')[0],
   });
 
+  const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
+  const salesDateLabel = describeSalesDateRange(salesDateRange);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       // Build sales query with region filtering for regional admins
-      let salesQuery = supabase.from('sales_records').select('*').order('sale_date', { ascending: false });
+      let salesQuery = supabase
+        .from('sales_records')
+        .select('*')
+        .gte('sale_date', salesDateRange.startDate)
+        .lte('sale_date', salesDateRange.endDate)
+        .order('sale_date', { ascending: false });
       if (isRegionalAdmin && assignedRegionIds.length > 0) {
         salesQuery = salesQuery.in('region_id', assignedRegionIds);
       }
 
-      const [salesRes, tlRes, regionRes, zonesRes] = await Promise.all([
+      const [salesRes, tlRes, captainRes, dsrRes, regionRes, zonesRes] = await Promise.all([
         salesQuery,
         supabase.from('team_leaders').select('id, name, region_id').order('name'),
+        supabase.from('captains').select('id, name, team_leader_id').order('name'),
+        supabase.from('dsrs').select('id, name, captain_id, dsr_number').order('name'),
         supabase.from('regions').select('*').order('name'),
         supabase.from('zones').select('id, name').order('name'),
       ]);
 
       if (salesRes.data) setSales(salesRes.data);
       if (zonesRes.data) setZones(zonesRes.data);
+      if (captainRes.data) setCaptains(captainRes.data);
+      if (dsrRes.data) setDsrs(dsrRes.data);
       // For regional admins, filter team leaders and regions
       if (tlRes.data) {
         const filteredTLs = isRegionalAdmin && assignedRegionIds.length > 0
@@ -151,11 +197,18 @@ export default function RecordSalePage() {
     } finally {
       setLoading(false);
     }
-  }, [isRegionalAdmin, assignedRegionIds]);
+  }, [assignedRegionIds, isRegionalAdmin, salesDateRange.endDate, salesDateRange.startDate]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const handleSalesDatePresetChange = (preset: SalesDatePreset) => {
+    const nextRange = createSalesDateRange(preset, salesDateFrom, salesDateTo);
+    setSalesDatePreset(preset);
+    setSalesDateFrom(nextRange.startDate);
+    setSalesDateTo(nextRange.endDate);
+  };
 
   // Fetch TL's assigned stock when TL changes
   useEffect(() => {
@@ -165,11 +218,22 @@ export default function RecordSalePage() {
     }
 
     const fetchTLStock = async () => {
+      let assignedToType = 'team_leader';
+      let assignedToId = formData.team_leader_id;
+
+      if (formData.dsr_id) {
+        assignedToType = 'dsr';
+        assignedToId = formData.dsr_id;
+      } else if (formData.captain_id) {
+        assignedToType = 'captain';
+        assignedToId = formData.captain_id;
+      }
+
       const { data } = await supabase
         .from('inventory')
         .select('id, smartcard_number, serial_number, stock_type')
-        .eq('assigned_to_type', 'team_leader')
-        .eq('assigned_to_id', formData.team_leader_id)
+        .eq('assigned_to_type', assignedToType)
+        .eq('assigned_to_id', assignedToId)
         .eq('status', 'assigned')
         .order('smartcard_number');
 
@@ -177,11 +241,17 @@ export default function RecordSalePage() {
     };
 
     fetchTLStock();
-  }, [formData.team_leader_id]);
+  }, [formData.team_leader_id, formData.captain_id, formData.dsr_id]);
 
   // Filter TLs by selected region
   const filteredTLs = formData.region_id
     ? teamLeaders.filter((tl) => tl.region_id === formData.region_id)
+    : [];
+  const filteredCaptains = formData.team_leader_id
+    ? captains.filter((captain) => captain.team_leader_id === formData.team_leader_id)
+    : [];
+  const filteredDsrs = formData.captain_id
+    ? dsrs.filter((dsr) => dsr.captain_id === formData.captain_id)
     : [];
 
   const resetForm = () => {
@@ -189,6 +259,8 @@ export default function RecordSalePage() {
     setFormData({
       region_id: '',
       team_leader_id: '',
+      captain_id: '',
+      dsr_id: '',
       inventory_id: '',
       package_status: 'No Package',
       payment_status: 'Unpaid',
@@ -202,6 +274,8 @@ export default function RecordSalePage() {
       ...formData,
       region_id: regionId,
       team_leader_id: '',
+      captain_id: '',
+      dsr_id: '',
       inventory_id: '',
     });
     setTlStock([]);
@@ -211,6 +285,25 @@ export default function RecordSalePage() {
     setFormData({
       ...formData,
       team_leader_id: tlId,
+      captain_id: '',
+      dsr_id: '',
+      inventory_id: '',
+    });
+  };
+
+  const handleCaptainChange = (captainId: string) => {
+    setFormData({
+      ...formData,
+      captain_id: captainId,
+      dsr_id: '',
+      inventory_id: '',
+    });
+  };
+
+  const handleDsrChange = (dsrId: string) => {
+    setFormData({
+      ...formData,
+      dsr_id: dsrId,
       inventory_id: '',
     });
   };
@@ -240,6 +333,8 @@ export default function RecordSalePage() {
         payment_status: formData.payment_status,
         package_status: formData.package_status,
         team_leader_id: formData.team_leader_id,
+        captain_id: formData.captain_id || null,
+        dsr_id: formData.dsr_id || null,
         region_id: formData.region_id,
         zone_id: region?.zone_id || null,
         inventory_id: formData.inventory_id,
@@ -299,6 +394,8 @@ export default function RecordSalePage() {
     setFormData({
       region_id: sale.region_id || '',
       team_leader_id: sale.team_leader_id || '',
+      captain_id: sale.captain_id || '',
+      dsr_id: sale.dsr_id || '',
       inventory_id: sale.inventory_id || '',
       package_status: sale.package_status,
       payment_status: sale.payment_status,
@@ -330,7 +427,8 @@ export default function RecordSalePage() {
     const matchesSearch =
       s.smartcard_number.toLowerCase().includes(query) ||
       s.serial_number.toLowerCase().includes(query) ||
-      s.customer_name?.toLowerCase().includes(query);
+      s.customer_name?.toLowerCase().includes(query) ||
+      (s.dsr_id ? (dsrs.find((dsr) => dsr.id === s.dsr_id)?.name || '').toLowerCase().includes(query) : false);
     const matchesZone = zoneFilter === 'all' || s.zone_id === zoneFilter;
     const matchesRegion = regionFilter === 'all' || s.region_id === regionFilter;
     return matchesSearch && matchesZone && matchesRegion;
@@ -357,6 +455,7 @@ export default function RecordSalePage() {
     paid: sales.filter((s) => s.payment_status === 'Paid').length,
     unpaid: sales.filter((s) => s.payment_status === 'Unpaid').length,
     noPackage: sales.filter((s) => s.package_status === 'No Package').length,
+    incomplete: sales.filter((s) => !s.dsr_id).length,
   };
 
   return (
@@ -370,7 +469,7 @@ export default function RecordSalePage() {
                 Record Sales
               </span>
             </h1>
-            <p className="text-muted-foreground mt-1">Simple sales recording</p>
+            <p className="text-muted-foreground mt-1">Simple sales recording for {salesDateLabel.toLowerCase()}</p>
           </div>
           <Button
             className="bg-gradient-to-r from-primary to-secondary text-primary-foreground"
@@ -383,8 +482,17 @@ export default function RecordSalePage() {
           </Button>
         </div>
 
+        <SalesDateFilter
+          preset={salesDatePreset}
+          startDate={salesDateFrom}
+          endDate={salesDateTo}
+          onPresetChange={handleSalesDatePresetChange}
+          onStartDateChange={setSalesDateFrom}
+          onEndDateChange={setSalesDateTo}
+        />
+
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <GlassCard className="text-center">
             <ShoppingCart className="h-8 w-8 mx-auto text-primary mb-2" />
             <p className="text-2xl font-bold">{stats.total}</p>
@@ -404,6 +512,11 @@ export default function RecordSalePage() {
             <Package className="h-8 w-8 mx-auto text-destructive mb-2" />
             <p className="text-2xl font-bold text-destructive">{stats.noPackage}</p>
             <p className="text-xs text-muted-foreground">No Package</p>
+          </GlassCard>
+          <GlassCard className="text-center">
+            <XCircle className="h-8 w-8 mx-auto text-amber-500 mb-2" />
+            <p className="text-2xl font-bold text-amber-500">{stats.incomplete}</p>
+            <p className="text-xs text-muted-foreground">Incomplete</p>
           </GlassCard>
         </div>
 
@@ -495,14 +608,16 @@ export default function RecordSalePage() {
                 <TableHead>Payment</TableHead>
                 <TableHead>Package</TableHead>
                 <TableHead>Team Leader</TableHead>
+                <TableHead>DSR</TableHead>
+                <TableHead>Completion</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredSales.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                    No sales recorded yet
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                    No sales recorded for {salesDateLabel.toLowerCase()}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -581,6 +696,21 @@ export default function RecordSalePage() {
                     <TableCell>
                       {teamLeaders.find((t) => t.id === sale.team_leader_id)?.name || '-'}
                     </TableCell>
+                    <TableCell>
+                      {sale.dsr_id ? (
+                        <div>
+                          <div className="font-medium">{dsrs.find((dsr) => dsr.id === sale.dsr_id)?.name || '-'}</div>
+                          <div className="text-xs text-muted-foreground">{dsrs.find((dsr) => dsr.id === sale.dsr_id)?.dsr_number || 'No D number'}</div>
+                        </div>
+                      ) : (
+                        <span className="text-amber-600 text-sm">Not attached</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={getSaleCompletionBadgeClass(sale.dsr_id)}>
+                        {getSaleCompletionLabel(sale.dsr_id)}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button
@@ -657,7 +787,52 @@ export default function RecordSalePage() {
                 </Select>
               </div>
 
-              {/* 3. Select Stock (TL's assigned inventory) */}
+              <div>
+                <Label>Captain</Label>
+                <Select
+                  value={formData.captain_id}
+                  onValueChange={handleCaptainChange}
+                  disabled={!formData.team_leader_id}
+                >
+                  <SelectTrigger className="glass-input">
+                    <SelectValue placeholder={formData.team_leader_id ? 'Select captain' : 'Select TL first'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredCaptains.length === 0 ? (
+                      <SelectItem value="__none__" disabled>No captains under this TL</SelectItem>
+                    ) : (
+                      filteredCaptains.map((captain) => (
+                        <SelectItem key={captain.id} value={captain.id}>{captain.name}</SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>DSR</Label>
+                <Select
+                  value={formData.dsr_id}
+                  onValueChange={handleDsrChange}
+                  disabled={!formData.captain_id}
+                >
+                  <SelectTrigger className="glass-input">
+                    <SelectValue placeholder={formData.captain_id ? 'Select DSR' : 'Select captain first'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredDsrs.length === 0 ? (
+                      <SelectItem value="__none__" disabled>No DSRs under this captain</SelectItem>
+                    ) : (
+                      filteredDsrs.map((dsr) => (
+                        <SelectItem key={dsr.id} value={dsr.id}>{dsr.name}{dsr.dsr_number ? ` - ${dsr.dsr_number}` : ''}</SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">If DSR is missing, the sale will stay marked as incomplete / not scanned.</p>
+              </div>
+
+              {/* 3. Select Stock */}
               <div>
                 <Label>Stock Item * <span className="text-muted-foreground text-xs">({tlStock.length} available)</span></Label>
                 <Select
@@ -670,7 +845,7 @@ export default function RecordSalePage() {
                   </SelectTrigger>
                   <SelectContent>
                     {tlStock.length === 0 ? (
-                      <SelectItem value="__none__" disabled>No stock assigned to this TL</SelectItem>
+                      <SelectItem value="__none__" disabled>No stock assigned to the selected seller level</SelectItem>
                     ) : (
                       tlStock.map((inv) => (
                         <SelectItem key={inv.id} value={inv.id}>

@@ -9,7 +9,8 @@ import {
   Loader2,
   Package,
   CreditCard,
-  RefreshCw
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 // ExcelJS loaded dynamically in upload/download functions
 import AdminLayout from '@/components/layout/AdminLayout';
@@ -64,6 +65,9 @@ interface ImportSummary {
   warnings: number;
   duplicates: number;
 }
+
+const SCANNED_WORKBOOK_URL = 'https://multichoicegroup-my.sharepoint.com/:x:/r/personal/juma_diwani_multichoice_co_tz/_layouts/15/doc2.aspx?sourcedoc=%7B162E1A48-AB00-4105-AB6D-2CDAA9D57185%7D&file=Unscanned.xlsx&action=default&mobileredirect=true&DefaultItemOpen=1&wdOrigin=APPHOME-WEB.DIRECT%2CAPPHOME-WEB.UNAUTH%2CAPPHOME-WEB.SHELL.SIGNIN%2CAPPHOME-WEB.JUMPBACKIN&wdPreviousSession=19b651eb-a28a-4344-aab3-d89006293df2&wdPreviousSessionSrc=AppHomeWeb&ct=1774527417781';
+const SCANNED_WORKBOOK_DOWNLOAD_URL = `${SCANNED_WORKBOOK_URL}&download=1`;
 
 export default function GlobalImportPage() {
   const { toast } = useToast();
@@ -405,10 +409,32 @@ export default function GlobalImportPage() {
               Bulk import sales data and automatically update inventory status
             </p>
           </div>
-          <Button variant="outline" className="glass-button" onClick={downloadTemplate}>
-            <Download className="h-4 w-4 mr-2" />
-            Download Template
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="outline" className="glass-button" asChild>
+              <a
+                href={SCANNED_WORKBOOK_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Scanned
+              </a>
+            </Button>
+            <Button variant="outline" className="glass-button" asChild>
+              <a
+                href={SCANNED_WORKBOOK_DOWNLOAD_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download From Scanned
+              </a>
+            </Button>
+            <Button variant="outline" className="glass-button" onClick={downloadTemplate}>
+              <Download className="h-4 w-4 mr-2" />
+              Download Template
+            </Button>
+          </div>
         </div>
 
         {/* Upload Section */}
@@ -417,6 +443,9 @@ export default function GlobalImportPage() {
             <h2 className="text-lg font-semibold">Upload Sales File</h2>
             <p className="text-sm text-muted-foreground">
               Upload an Excel file with sales data. The system will automatically mark inventory items as sold.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Use Scanned to open the SharePoint workbook, or Download From Scanned to trigger the direct-download endpoint. Both may ask the admin to sign in with the organization account first.
             </p>
 
             {/* Default Status Selection */}

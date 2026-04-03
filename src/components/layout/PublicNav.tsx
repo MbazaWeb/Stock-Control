@@ -66,12 +66,12 @@ export default function PublicNav() {
             })}
           </div>
 
-          {/* Admin Login */}
+          {/* Login */}
           <div className="hidden md:flex items-center gap-3">
             <Link to="/admin/login">
               <Button className="btn-gold-gradient flex items-center gap-2">
                 <LogIn className="h-4 w-4" />
-                Admin
+                Login
               </Button>
             </Link>
           </div>
@@ -115,7 +115,7 @@ export default function PublicNav() {
                 className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium btn-gold-gradient mt-2"
               >
                 <LogIn className="h-5 w-5" />
-                Admin Login
+                Login
               </Link>
             </div>
           </div>
