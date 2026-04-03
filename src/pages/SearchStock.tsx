@@ -190,8 +190,7 @@ export default function SearchStock() {
           .ilike(searchType === 'smartcard' ? 'smartcard_number' : 'serial_number', `%${searchQuery}%`)
           .limit(100);
 
-        // Fetch assigned person names for inventory items (resolve full hierarchy)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Fetch assigned person names for inventory items (resolve full hierarchy)
         const inventoryWithNames = await Promise.all(((inventoryData || []) as InventorySearchRow[]).map(async (item) => {
           let tl_name: string | null = null;
           let captain_name: string | null = null;
@@ -240,8 +239,7 @@ export default function SearchStock() {
           .ilike(searchType === 'smartcard' ? 'smartcard_number' : 'serial_number', `%${searchQuery}%`)
           .limit(100);
 
-        // Process inventory data
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Process inventory data
         const inventoryResults = inventoryWithNames.map((item) => ({
           id: item.id,
           smartcard_number: item.smartcard_number,
@@ -263,8 +261,7 @@ export default function SearchStock() {
           source: 'inventory' as const
         }));
 
-        // Process sales data
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Process sales data
         const salesResults = ((salesData || []) as SalesSearchRow[]).map((item) => ({
           id: item.id,
           smartcard_number: item.smartcard_number,
@@ -379,7 +376,6 @@ export default function SearchStock() {
           const allInventoryData = inventoryResults.flatMap(r => r.data || []);
           const uniqueInventory = Array.from(new Map(allInventoryData.map(i => [i.id, i])).values());
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const salesFormatted = (uniqueSales as SalesSearchRow[]).map((item) => ({
             id: item.id,
             smartcard_number: item.smartcard_number,
@@ -401,7 +397,6 @@ export default function SearchStock() {
             source: 'sale' as const
           }));
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const inventoryFormatted = (uniqueInventory as InventorySearchRow[]).map((item) => {
             let assigned_to_name: string | null = null;
             if (item.assigned_to_type === 'team_leader' && item.assigned_to_id) assigned_to_name = tlNames[item.assigned_to_id] || null;
