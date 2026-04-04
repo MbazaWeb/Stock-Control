@@ -333,7 +333,8 @@ export default function RecordSalePage() {
   };
 
   const handleSubmit = async () => {
-    if (!formData.inventory_id) {
+    // Only require inventory_id if not in Attach DSR mode
+    if (!attachDsrMode && !formData.inventory_id) {
       toast({ title: 'Error', description: 'Please select stock item', variant: 'destructive' });
       return;
     }
