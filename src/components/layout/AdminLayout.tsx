@@ -12,13 +12,17 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const { isAdmin, isLoading } = useAuth();
   const navigate = useNavigate();
 
+  console.log('AdminLayout rendered - isLoading:', isLoading, 'isAdmin:', isAdmin);
+
   useEffect(() => {
     if (!isLoading && !isAdmin) {
+      console.log('AdminLayout: user not admin, redirecting to login');
       navigate('/admin/login');
     }
   }, [isAdmin, isLoading, navigate]);
 
   if (isLoading) {
+    console.log('AdminLayout: showing loading spinner');
     return (
       <div className="min-h-dvh flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -30,9 +34,11 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   }
 
   if (!isAdmin) {
+    console.log('AdminLayout: not admin, returning null');
     return null;
   }
 
+  console.log('AdminLayout: rendering main content');
   return (
     <div className="min-h-dvh flex">
       <AdminSidebar />

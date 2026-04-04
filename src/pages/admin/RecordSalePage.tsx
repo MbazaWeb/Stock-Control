@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Plus,
   Trash2,
@@ -118,6 +118,7 @@ export default function RecordSalePage() {
   const { isRegionalAdmin, assignedRegionIds } = useAuth();
   const defaultSalesDateRange = getDefaultSalesDateRange();
   const [loading, setLoading] = useState(true);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [teamLeaders, setTeamLeaders] = useState<TeamLeader[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
@@ -130,6 +131,8 @@ export default function RecordSalePage() {
   const [salesDatePreset, setSalesDatePreset] = useState<SalesDatePreset>('this_month');
   const [salesDateFrom, setSalesDateFrom] = useState(defaultSalesDateRange.startDate);
   const [salesDateTo, setSalesDateTo] = useState(defaultSalesDateRange.endDate);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -138,6 +141,7 @@ export default function RecordSalePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [attachDsrMode, setAttachDsrMode] = useState(false);
 
   // Simple form state
   const [formData, setFormData] = useState({
@@ -156,6 +160,12 @@ export default function RecordSalePage() {
   const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
   const salesDateLabel = describeSalesDateRange(salesDateRange);
 
+  // Create lookup maps for better performance
+  const captainMap = useMemo(() => new Map(captains.map(c => [c.id, c])), [captains]);
+  const dsrMap = useMemo(() => new Map(dsrs.map(d => [d.id, d])), [dsrs]);
+  const teamLeaderMap = useMemo(() => new Map(teamLeaders.map(t => [t.id, t])), [teamLeaders]);
+  const regionMap = useMemo(() => new Map(regions.map(r => [r.id, r])), [regions]);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -166,6 +176,7 @@ export default function RecordSalePage() {
         .gte('sale_date', salesDateRange.startDate)
         .lte('sale_date', salesDateRange.endDate)
         .order('sale_date', { ascending: false });
+      
       if (isRegionalAdmin && assignedRegionIds.length > 0) {
         salesQuery = salesQuery.in('region_id', assignedRegionIds);
       }
@@ -179,10 +190,12 @@ export default function RecordSalePage() {
         supabase.from('zones').select('id, name').order('name'),
       ]);
 
+      if (salesRes.error) throw salesRes.error;
       if (salesRes.data) setSales(salesRes.data);
       if (zonesRes.data) setZones(zonesRes.data);
       if (captainRes.data) setCaptains(captainRes.data);
       if (dsrRes.data) setDsrs(dsrRes.data);
+      
       // For regional admins, filter team leaders and regions
       if (tlRes.data) {
         const filteredTLs = isRegionalAdmin && assignedRegionIds.length > 0
@@ -190,6 +203,7 @@ export default function RecordSalePage() {
           : tlRes.data;
         setTeamLeaders(filteredTLs);
       }
+      
       if (regionRes.data) {
         const filteredRegions = isRegionalAdmin && assignedRegionIds.length > 0
           ? regionRes.data.filter(r => assignedRegionIds.includes(r.id))
@@ -198,10 +212,15 @@ export default function RecordSalePage() {
       }
     } catch (error) {
       console.error('Error fetching data:', error);
+      toast({ 
+        title: 'Error Loading Data', 
+        description: 'Failed to load sales data. Please refresh the page.',
+        variant: 'destructive' 
+      });
     } finally {
       setLoading(false);
     }
-  }, [assignedRegionIds, isRegionalAdmin, salesDateRange.endDate, salesDateRange.startDate]);
+  }, [assignedRegionIds, isRegionalAdmin, salesDateRange.endDate, salesDateRange.startDate, toast]);
 
   useEffect(() => {
     fetchData();
@@ -212,6 +231,7 @@ export default function RecordSalePage() {
     setSalesDatePreset(preset);
     setSalesDateFrom(nextRange.startDate);
     setSalesDateTo(nextRange.endDate);
+    setCurrentPage(1); // Reset pagination when date range changes
   };
 
   // Fetch all stock assigned to TL, their Captains, and DSRs when TL changes
@@ -220,6 +240,8 @@ export default function RecordSalePage() {
       setTlStock([]);
       return;
     }
+
+    let isMounted = true;
 
     const fetchAllStock = async () => {
       // Get all captains under this TL
@@ -237,12 +259,18 @@ export default function RecordSalePage() {
       // Fetch all stock assigned to any of these
       let allStock: InventoryItem[] = [];
       for (const a of assignments) {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('inventory')
           .select('id, smartcard_number, serial_number, stock_type, assigned_to_type, assigned_to_id')
           .eq('assigned_to_type', a.type)
           .eq('assigned_to_id', a.id)
           .eq('status', 'assigned');
+        
+        if (error) {
+          console.error('Error fetching stock:', error);
+          continue;
+        }
+        
         if (data) {
           const mapped = data.map((item: {
             id: string;
@@ -259,10 +287,15 @@ export default function RecordSalePage() {
           allStock = allStock.concat(mapped);
         }
       }
-      setTlStock(allStock);
+      
+      if (isMounted) {
+        setTlStock(allStock);
+      }
     };
 
     fetchAllStock();
+    
+    return () => { isMounted = false; };
   }, [formData.team_leader_id, captains, dsrs]);
 
   // Filter TLs by selected region
@@ -278,6 +311,7 @@ export default function RecordSalePage() {
 
   const resetForm = () => {
     setEditingSale(null);
+    setAttachDsrMode(false);
     setFormData({
       region_id: '',
       team_leader_id: '',
@@ -301,6 +335,8 @@ export default function RecordSalePage() {
       captain_id: '',
       dsr_id: '',
       inventory_id: '',
+      seller_id: '',
+      seller_type: '',
     });
     setTlStock([]);
   };
@@ -312,6 +348,8 @@ export default function RecordSalePage() {
       captain_id: '',
       dsr_id: '',
       inventory_id: '',
+      seller_id: '',
+      seller_type: '',
     });
   };
 
@@ -321,6 +359,8 @@ export default function RecordSalePage() {
       captain_id: captainId,
       dsr_id: '',
       inventory_id: '',
+      seller_id: '',
+      seller_type: '',
     });
   };
 
@@ -332,12 +372,42 @@ export default function RecordSalePage() {
     });
   };
 
-  const handleSubmit = async () => {
-    // Only require inventory_id for new sales (not editing)
-    if (!editingSale && !formData.inventory_id) {
-      toast({ title: 'Error', description: 'Please select stock item', variant: 'destructive' });
-      return;
+  const validateForm = () => {
+    if (!attachDsrMode && !editingSale && !formData.inventory_id) {
+      toast({ title: 'Error', description: 'Please select a stock item', variant: 'destructive' });
+      return false;
     }
+    
+    if (attachDsrMode) {
+      if (!formData.team_leader_id) {
+        toast({ title: 'Error', description: 'Please select a Team Leader', variant: 'destructive' });
+        return false;
+      }
+      if (!formData.captain_id) {
+        toast({ title: 'Error', description: 'Please select a Captain', variant: 'destructive' });
+        return false;
+      }
+      if (!formData.dsr_id) {
+        toast({ title: 'Error', description: 'Please select a DSR', variant: 'destructive' });
+        return false;
+      }
+    }
+    
+    if (!formData.region_id && !attachDsrMode) {
+      toast({ title: 'Error', description: 'Please select a region', variant: 'destructive' });
+      return false;
+    }
+    
+    if (!formData.team_leader_id && !attachDsrMode) {
+      toast({ title: 'Error', description: 'Please select a Team Leader', variant: 'destructive' });
+      return false;
+    }
+    
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    if (!validateForm()) return;
 
     let selectedStock;
     if (editingSale) {
@@ -348,7 +418,7 @@ export default function RecordSalePage() {
         stock_type: editingSale.stock_type,
         id: editingSale.inventory_id,
       };
-    } else {
+    } else if (!attachDsrMode) {
       selectedStock = tlStock.find((s) => s.id === formData.inventory_id);
       if (!selectedStock) {
         toast({ title: 'Error', description: 'Stock not found', variant: 'destructive' });
@@ -358,64 +428,94 @@ export default function RecordSalePage() {
 
     setSaving(true);
     try {
-      // Get zone_id from region
-      const region = regions.find((r) => r.id === formData.region_id);
-
-      // Determine seller type and id from form
-      let sellerType = formData.seller_type;
-      let sellerId = formData.seller_id;
-      // Fallback: if not set, use DSR, Captain, or TL from form
-      if (!sellerType || !sellerId) {
-        if (formData.dsr_id) {
-          sellerType = 'dsr'; sellerId = formData.dsr_id;
-        } else if (formData.captain_id) {
-          sellerType = 'captain'; sellerId = formData.captain_id;
-        } else {
-          sellerType = 'team_leader'; sellerId = formData.team_leader_id;
-        }
-      }
-
-      const saleData = {
-        smartcard_number: selectedStock.smartcard_number,
-        serial_number: selectedStock.serial_number,
-        stock_type: selectedStock.stock_type,
-        sale_date: formData.sale_date,
-        payment_status: formData.payment_status,
-        package_status: formData.package_status,
-        team_leader_id: formData.team_leader_id,
-        captain_id: formData.captain_id || null,
-        dsr_id: formData.dsr_id || null,
-        region_id: formData.region_id,
-        zone_id: region?.zone_id || null,
-        inventory_id: formData.inventory_id,
-        // sold_by_type and sold_by_id removed (do not exist in schema)
-      };
-
-      if (editingSale) {
-        // Ensure all required fields are present for update
-        if (!saleData.inventory_id) saleData.inventory_id = editingSale.inventory_id ?? '';
-        if (!saleData.region_id) saleData.region_id = editingSale.region_id ?? '';
-        if (!saleData.smartcard_number) saleData.smartcard_number = editingSale.smartcard_number;
-        if (!saleData.serial_number) saleData.serial_number = editingSale.serial_number;
-        if (!saleData.stock_type) saleData.stock_type = editingSale.stock_type;
-        const { error } = await supabase.from('sales_records').update(saleData).eq('id', editingSale.id);
-        if (error) {
-          // Log error details and saleData for debugging
-          console.error('Supabase update error:', error);
-          console.error('saleData sent:', saleData);
-          alert('Supabase update error: ' + (error.message || JSON.stringify(error)));
-          throw error;
-        }
-        toast({ title: 'Success', description: 'Sale updated!' });
+      if (attachDsrMode && editingSale) {
+        // Just update the DSR for the sale
+        const { error } = await supabase
+          .from('sales_records')
+          .update({ 
+            dsr_id: formData.dsr_id,
+            captain_id: formData.captain_id,
+            team_leader_id: formData.team_leader_id
+          })
+          .eq('id', editingSale.id);
+        
+        if (error) throw error;
+        toast({ title: 'Success', description: 'DSR attached successfully!' });
+      } else if (editingSale) {
+        // Update existing sale
+        const region = regions.find((r) => r.id === formData.region_id);
+        
+        const saleData = {
+          smartcard_number: editingSale.smartcard_number,
+          serial_number: editingSale.serial_number,
+          stock_type: editingSale.stock_type,
+          sale_date: formData.sale_date,
+          payment_status: formData.payment_status,
+          package_status: formData.package_status,
+          team_leader_id: formData.team_leader_id,
+          captain_id: formData.captain_id || null,
+          dsr_id: formData.dsr_id || null,
+          region_id: formData.region_id,
+          zone_id: region?.zone_id || null,
+          inventory_id: editingSale.inventory_id,
+        };
+        
+        const { error } = await supabase
+          .from('sales_records')
+          .update(saleData)
+          .eq('id', editingSale.id);
+        
+        if (error) throw error;
+        toast({ title: 'Success', description: 'Sale updated successfully!' });
       } else {
-        // Insert sale record
+        // Insert new sale record
+        const region = regions.find((r) => r.id === formData.region_id);
+        
+        // Determine seller type and id from form
+        let sellerType = formData.seller_type;
+        let sellerId = formData.seller_id;
+        
+        // Fallback: if not set, use DSR, Captain, or TL from form
+        if (!sellerType || !sellerId) {
+          if (formData.dsr_id) {
+            sellerType = 'dsr';
+            sellerId = formData.dsr_id;
+          } else if (formData.captain_id) {
+            sellerType = 'captain';
+            sellerId = formData.captain_id;
+          } else {
+            sellerType = 'team_leader';
+            sellerId = formData.team_leader_id;
+          }
+        }
+
+        const saleData = {
+          smartcard_number: selectedStock!.smartcard_number,
+          serial_number: selectedStock!.serial_number,
+          stock_type: selectedStock!.stock_type,
+          sale_date: formData.sale_date,
+          payment_status: formData.payment_status,
+          package_status: formData.package_status,
+          team_leader_id: formData.team_leader_id,
+          captain_id: formData.captain_id || null,
+          dsr_id: formData.dsr_id || null,
+          region_id: formData.region_id,
+          zone_id: region?.zone_id || null,
+          inventory_id: formData.inventory_id,
+        };
+
         const { error } = await supabase.from('sales_records').insert([saleData]);
         if (error) throw error;
 
         // Mark inventory as sold
-        await supabase.from('inventory').update({ status: 'sold' }).eq('id', formData.inventory_id);
+        const { error: inventoryError } = await supabase
+          .from('inventory')
+          .update({ status: 'sold' })
+          .eq('id', formData.inventory_id);
+        
+        if (inventoryError) throw inventoryError;
 
-        toast({ title: 'Success', description: 'Sale recorded!' });
+        toast({ title: 'Success', description: 'Sale recorded successfully!' });
       }
 
       setDialogOpen(false);
@@ -431,29 +531,61 @@ export default function RecordSalePage() {
 
   const handleDelete = async () => {
     if (!deleteSale) return;
-    const { error } = await supabase.from('sales_records').delete().eq('id', deleteSale.id);
-    if (!error) {
-      toast({ title: 'Deleted', description: 'Sale record removed.' });
+    
+    try {
+      const { error } = await supabase.from('sales_records').delete().eq('id', deleteSale.id);
+      if (error) throw error;
+      
+      toast({ title: 'Deleted', description: 'Sale record removed successfully.' });
       setDeleteDialogOpen(false);
       setDeleteSale(null);
       fetchData();
-    } else {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to delete';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
     }
   };
 
   const handleBulkDelete = async () => {
     if (selectedItems.length === 0) return;
-    const { error } = await supabase.from('sales_records').delete().in('id', selectedItems);
-    if (!error) {
-      toast({ title: 'Deleted', description: `${selectedItems.length} sales removed.` });
+    
+    try {
+      const { error } = await supabase.from('sales_records').delete().in('id', selectedItems);
+      if (error) throw error;
+      
+      toast({ title: 'Deleted', description: `${selectedItems.length} sale(s) removed successfully.` });
       setSelectedItems([]);
       fetchData();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to delete';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    }
+  };
+
+  const handleBulkStatusUpdate = async (ids: string[], updates: object) => {
+    setBulkUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('sales_records')
+        .update(updates)
+        .in('id', ids);
+      
+      if (error) throw error;
+      
+      toast({ title: 'Success', description: `${ids.length} sale(s) updated successfully.` });
+      setSelectedItems([]);
+      fetchData();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to update';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    } finally {
+      setBulkUpdating(false);
     }
   };
 
   const handleEditClick = (sale: SaleRecord) => {
     setEditingSale(sale);
+    setAttachDsrMode(false);
     setFormData({
       region_id: sale.region_id || '',
       team_leader_id: sale.team_leader_id || '',
@@ -467,13 +599,11 @@ export default function RecordSalePage() {
       seller_id: '',
     });
     setDialogOpen(true);
-    setAttachDsrMode(false);
   };
 
-  // Attach DSR: minimal dialog
-  const [attachDsrMode, setAttachDsrMode] = useState(false);
   const handleAttachDsr = (sale: SaleRecord) => {
     setEditingSale(sale);
+    setAttachDsrMode(true);
     setFormData({
       region_id: sale.region_id || '',
       team_leader_id: sale.team_leader_id || '',
@@ -487,22 +617,39 @@ export default function RecordSalePage() {
       seller_id: '',
     });
     setDialogOpen(true);
-    setAttachDsrMode(true);
   };
 
   const handleUpdatePaymentStatus = async (sale: SaleRecord, status: string) => {
-    const { error } = await supabase.from('sales_records').update({ payment_status: status }).eq('id', sale.id);
-    if (!error) {
-      toast({ title: 'Success', description: `Payment: ${status}` });
+    try {
+      const { error } = await supabase
+        .from('sales_records')
+        .update({ payment_status: status })
+        .eq('id', sale.id);
+      
+      if (error) throw error;
+      
+      toast({ title: 'Success', description: `Payment status updated to ${status}` });
       fetchData();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to update';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
     }
   };
 
   const handleUpdatePackageStatus = async (sale: SaleRecord, status: string) => {
-    const { error } = await supabase.from('sales_records').update({ package_status: status }).eq('id', sale.id);
-    if (!error) {
-      toast({ title: 'Success', description: `Package: ${status}` });
+    try {
+      const { error } = await supabase
+        .from('sales_records')
+        .update({ package_status: status })
+        .eq('id', sale.id);
+      
+      if (error) throw error;
+      
+      toast({ title: 'Success', description: `Package status updated to ${status}` });
       fetchData();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to update';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
     }
   };
 
@@ -510,15 +657,24 @@ export default function RecordSalePage() {
 
   const filteredSales = sales.filter((s) => {
     const query = searchQuery.toLowerCase();
+    const dsr = dsrMap.get(s.dsr_id || '');
     const matchesSearch =
       s.smartcard_number.toLowerCase().includes(query) ||
       s.serial_number.toLowerCase().includes(query) ||
-      s.customer_name?.toLowerCase().includes(query) ||
-      (s.dsr_id ? (dsrs.find((dsr) => dsr.id === s.dsr_id)?.name || '').toLowerCase().includes(query) : false);
+      (s.customer_name?.toLowerCase() || '').includes(query) ||
+      (dsr?.name || '').toLowerCase().includes(query);
+    
     const matchesZone = zoneFilter === 'all' || s.zone_id === zoneFilter;
     const matchesRegion = regionFilter === 'all' || s.region_id === regionFilter;
     return matchesSearch && matchesZone && matchesRegion;
   });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredSales.length / itemsPerPage);
+  const paginatedSales = filteredSales.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   if (loading) {
     return (
@@ -613,40 +769,58 @@ export default function RecordSalePage() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search smartcard, serial..."
+                  id="search-sales"
+                  name="search-sales"
+                  placeholder="Search smartcard, serial, DSR name..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   className="pl-10 glass-input"
                 />
               </div>
             </div>
             {selectedItems.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={async () => {
-                  const { error } = await supabase.from('sales_records').update({ payment_status: 'Paid' }).in('id', selectedItems);
-                  if (!error) { toast({ title: 'Success', description: `${selectedItems.length} marked Paid` }); setSelectedItems([]); fetchData(); }
-                }}>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => handleBulkStatusUpdate(selectedItems, { payment_status: 'Paid' })}
+                  disabled={bulkUpdating}
+                >
                   <Check className="w-3 h-3 mr-1" /> Paid
                 </Button>
-                <Button size="sm" variant="outline" onClick={async () => {
-                  const { error } = await supabase.from('sales_records').update({ payment_status: 'Unpaid' }).in('id', selectedItems);
-                  if (!error) { toast({ title: 'Success', description: `${selectedItems.length} marked Unpaid` }); setSelectedItems([]); fetchData(); }
-                }}>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => handleBulkStatusUpdate(selectedItems, { payment_status: 'Unpaid' })}
+                  disabled={bulkUpdating}
+                >
                   <XCircle className="w-3 h-3 mr-1" /> Unpaid
                 </Button>
-                <Button size="sm" variant="outline" onClick={async () => {
-                  const { error } = await supabase.from('sales_records').update({ package_status: 'Packaged' }).in('id', selectedItems);
-                  if (!error) { toast({ title: 'Success', description: `${selectedItems.length} marked Packaged` }); setSelectedItems([]); fetchData(); }
-                }}>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => handleBulkStatusUpdate(selectedItems, { package_status: 'Packaged' })}
+                  disabled={bulkUpdating}
+                >
                   <PackageCheck className="w-3 h-3 mr-1" /> Packaged
                 </Button>
-                <Button size="sm" variant="outline" onClick={async () => {
-                  const { error } = await supabase.from('sales_records').update({ package_status: 'No Package' }).in('id', selectedItems);
-                  if (!error) { toast({ title: 'Success', description: `${selectedItems.length} marked No Package` }); setSelectedItems([]); fetchData(); }
-                }}>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => handleBulkStatusUpdate(selectedItems, { package_status: 'No Package' })}
+                  disabled={bulkUpdating}
+                >
                   <PackageOpen className="w-3 h-3 mr-1" /> No Pkg
                 </Button>
-                <Button size="sm" variant="destructive" onClick={handleBulkDelete}>
+                <Button 
+                  size="sm" 
+                  variant="destructive" 
+                  onClick={handleBulkDelete}
+                  disabled={bulkUpdating}
+                >
                   <Trash2 className="w-3 h-3 mr-1" /> Delete ({selectedItems.length})
                 </Button>
               </div>
@@ -654,22 +828,34 @@ export default function RecordSalePage() {
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             <Filter className="h-4 w-4 text-muted-foreground" />
-            <Select value={zoneFilter} onValueChange={setZoneFilter}>
-              <SelectTrigger className="w-[140px] h-8 text-xs glass-input"><SelectValue placeholder="Zone" /></SelectTrigger>
+            <Select value={zoneFilter} onValueChange={(val) => {
+              setZoneFilter(val);
+              setCurrentPage(1);
+            }}>
+              <SelectTrigger className="w-[140px] h-8 text-xs glass-input" id="zone-filter" name="zone-filter">
+                <SelectValue placeholder="Zone" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Zones</SelectItem>
                 {zones.map(z => <SelectItem key={z.id} value={z.id}>{z.name}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={regionFilter} onValueChange={setRegionFilter}>
-              <SelectTrigger className="w-[140px] h-8 text-xs glass-input"><SelectValue placeholder="Region" /></SelectTrigger>
+            <Select value={regionFilter} onValueChange={(val) => {
+              setRegionFilter(val);
+              setCurrentPage(1);
+            }}>
+              <SelectTrigger className="w-[140px] h-8 text-xs glass-input" id="region-filter" name="region-filter">
+                <SelectValue placeholder="Region" />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Regions</SelectItem>
-                {(zoneFilter === 'all' ? regions : regions.filter(r => r.zone_id === zoneFilter)).map(r => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                {(zoneFilter === 'all' ? regions : regions.filter(r => r.zone_id === zoneFilter)).map(r => (
+                  <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <span className="text-xs text-muted-foreground ml-auto">
-              {filteredSales.length} of {sales.length}
+              {filteredSales.length} of {sales.length} sales
             </span>
           </div>
         </GlassCard>
@@ -677,171 +863,205 @@ export default function RecordSalePage() {
         {/* Sales Table */}
         <GlassCard>
           <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-border/50">
-                <TableHead className="w-[50px]">
-                  <Checkbox
-                    checked={selectedItems.length === filteredSales.length && filteredSales.length > 0}
-                    onCheckedChange={(val) =>
-                      setSelectedItems(val ? filteredSales.map((s) => s.id) : [])
-                    }
-                  />
-                </TableHead>
-                <TableHead>Smartcard / Serial</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Payment</TableHead>
-                <TableHead>Package</TableHead>
-                <TableHead>Team Leader</TableHead>
-                <TableHead>DSR</TableHead>
-                <TableHead>Completion</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredSales.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                    No sales recorded for {salesDateLabel.toLowerCase()}
-                  </TableCell>
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border/50">
+                  <TableHead className="w-[50px]">
+                    <Checkbox
+                      checked={selectedItems.length === paginatedSales.length && paginatedSales.length > 0}
+                      onCheckedChange={(val) =>
+                        setSelectedItems(val ? paginatedSales.map((s) => s.id) : [])
+                      }
+                    />
+                  </TableHead>
+                  <TableHead>Smartcard / Serial</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Payment</TableHead>
+                  <TableHead>Package</TableHead>
+                  <TableHead>Team Leader</TableHead>
+                  <TableHead>DSR</TableHead>
+                  <TableHead>Completion</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ) : (
-                filteredSales.slice(0, 50).map((sale) => (
-                  <TableRow key={sale.id} className="border-border/30 hover:bg-primary/5">
-                    <TableCell>
-                      <Checkbox
-                        checked={selectedItems.includes(sale.id)}
-                        onCheckedChange={() =>
-                          setSelectedItems((prev) =>
-                            prev.includes(sale.id)
-                              ? prev.filter((id) => id !== sale.id)
-                              : [...prev, sale.id]
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium">{sale.smartcard_number}</div>
-                      <div className="text-xs text-muted-foreground">{sale.serial_number}</div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{sale.stock_type}</Badge>
-                    </TableCell>
-                    <TableCell>{new Date(sale.sale_date).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          className={
-                            sale.payment_status === 'Paid'
-                              ? 'bg-green-500/20 text-green-500 border-green-500/30'
-                              : 'bg-red-500/20 text-red-500 border-red-500/30'
-                          }
-                        >
-                          {sale.payment_status}
-                        </Badge>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0"
-                          onClick={() => handleUpdatePaymentStatus(sale, sale.payment_status === 'Paid' ? 'Unpaid' : 'Paid')}
-                        >
-                          {sale.payment_status === 'Paid' ? (
-                            <XCircle className="h-3 w-3 text-destructive" />
-                          ) : (
-                            <Check className="h-3 w-3 text-green-500" />
-                          )}
-                        </Button>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          className={
-                            sale.package_status === 'Packaged'
-                              ? 'bg-purple-500/20 text-purple-500 border-purple-500/30'
-                              : 'bg-pink-500/20 text-pink-500 border-pink-500/30'
-                          }
-                        >
-                          {sale.package_status}
-                        </Badge>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0"
-                          onClick={() => handleUpdatePackageStatus(sale, sale.package_status === 'Packaged' ? 'No Package' : 'Packaged')}
-                        >
-                          {sale.package_status === 'Packaged' ? (
-                            <PackageOpen className="h-3 w-3 text-destructive" />
-                          ) : (
-                            <PackageCheck className="h-3 w-3 text-green-500" />
-                          )}
-                        </Button>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {teamLeaders.find((t) => t.id === sale.team_leader_id)?.name || '-'}
-                    </TableCell>
-                    <TableCell>
-                      {sale.dsr_id ? (
-                        <div>
-                          <div className="font-medium">{dsrs.find((dsr) => dsr.id === sale.dsr_id)?.name || '-'}</div>
-                          <div className="text-xs text-muted-foreground">{dsrs.find((dsr) => dsr.id === sale.dsr_id)?.dsr_number || 'No D number'}</div>
-                        </div>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-amber-600 text-xs border-amber-400"
-                          onClick={() => handleAttachDsr(sale)}
-                        >
-                          <span className="underline">Attach DSR</span>
-                        </Button>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={getSaleCompletionBadgeClass(sale.dsr_id)}>
-                        {getSaleCompletionLabel(sale.dsr_id)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => handleEditClick(sale)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 w-8 p-0"
-                          onClick={() => {
-                            setDeleteSale(sale);
-                            setDeleteDialogOpen(true);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
+              </TableHeader>
+              <TableBody>
+                {paginatedSales.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                      No sales recorded for {salesDateLabel.toLowerCase()}
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  paginatedSales.map((sale) => (
+                    <TableRow key={sale.id} className="border-border/30 hover:bg-primary/5">
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedItems.includes(sale.id)}
+                          onCheckedChange={() =>
+                            setSelectedItems((prev) =>
+                              prev.includes(sale.id)
+                                ? prev.filter((id) => id !== sale.id)
+                                : [...prev, sale.id]
+                            )
+                          }
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">{sale.smartcard_number}</div>
+                        <div className="text-xs text-muted-foreground">{sale.serial_number}</div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{sale.stock_type}</Badge>
+                      </TableCell>
+                      <TableCell>{new Date(sale.sale_date).toLocaleDateString()}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            className={
+                              sale.payment_status === 'Paid'
+                                ? 'bg-green-500/20 text-green-500 border-green-500/30'
+                                : 'bg-red-500/20 text-red-500 border-red-500/30'
+                            }
+                          >
+                            {sale.payment_status}
+                          </Badge>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0"
+                            onClick={() => handleUpdatePaymentStatus(sale, sale.payment_status === 'Paid' ? 'Unpaid' : 'Paid')}
+                            aria-label={sale.payment_status === 'Paid' ? 'Mark as unpaid' : 'Mark as paid'}
+                          >
+                            {sale.payment_status === 'Paid' ? (
+                              <XCircle className="h-3 w-3 text-destructive" />
+                            ) : (
+                              <Check className="h-3 w-3 text-green-500" />
+                            )}
+                          </Button>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            className={
+                              sale.package_status === 'Packaged'
+                                ? 'bg-purple-500/20 text-purple-500 border-purple-500/30'
+                                : 'bg-pink-500/20 text-pink-500 border-pink-500/30'
+                            }
+                          >
+                            {sale.package_status}
+                          </Badge>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0"
+                            onClick={() => handleUpdatePackageStatus(sale, sale.package_status === 'Packaged' ? 'No Package' : 'Packaged')}
+                            aria-label={sale.package_status === 'Packaged' ? 'Mark as no package' : 'Mark as packaged'}
+                          >
+                            {sale.package_status === 'Packaged' ? (
+                              <PackageOpen className="h-3 w-3 text-destructive" />
+                            ) : (
+                              <PackageCheck className="h-3 w-3 text-green-500" />
+                            )}
+                          </Button>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {teamLeaderMap.get(sale.team_leader_id || '')?.name || '-'}
+                      </TableCell>
+                      <TableCell>
+                        {sale.dsr_id ? (
+                          <div>
+                            <div className="font-medium">{dsrMap.get(sale.dsr_id)?.name || '-'}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {dsrMap.get(sale.dsr_id)?.dsr_number || 'No D number'}
+                            </div>
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-amber-600 text-xs border-amber-400"
+                            onClick={() => handleAttachDsr(sale)}
+                          >
+                            Attach DSR
+                          </Button>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={getSaleCompletionBadgeClass(sale.dsr_id)}>
+                          {getSaleCompletionLabel(sale.dsr_id)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleEditClick(sale)}
+                            aria-label="Edit sale"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => {
+                              setDeleteSale(sale);
+                              setDeleteDialogOpen(true);
+                            }}
+                            aria-label="Delete sale"
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
           </div>
+          
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex justify-center gap-2 mt-4 pt-4 border-t border-border/50">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground px-4">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          )}
         </GlassCard>
 
-        {/* Simple Add/Edit Dialog */}
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        {/* Add/Edit Dialog */}
+        <Dialog open={dialogOpen} onOpenChange={(open) => {
+          if (!open) resetForm();
+          setDialogOpen(open);
+        }}>
           <DialogContent className="glass-card border-border/50 max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {attachDsrMode
-                  ? 'Attach DSR'
+                  ? 'Attach DSR to Sale'
                   : editingSale
                   ? 'Edit Sale'
                   : 'Record New Sale'}
@@ -850,21 +1070,27 @@ export default function RecordSalePage() {
             <div className="space-y-4">
               {attachDsrMode ? (
                 <div className="space-y-4">
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-2">
+                    <p className="text-sm text-amber-600">
+                      Attaching DSR to sale: <strong>{editingSale?.smartcard_number}</strong>
+                    </p>
+                  </div>
+                  
                   {/* Select TL */}
                   <div>
-                    <Label>Team Leader *</Label>
+                    <Label htmlFor="attach-tl">Team Leader *</Label>
                     <Select
                       value={formData.team_leader_id}
                       onValueChange={(v) => {
                         setFormData({ ...formData, team_leader_id: v, captain_id: '', dsr_id: '' });
                       }}
                     >
-                      <SelectTrigger className="glass-input">
+                      <SelectTrigger className="glass-input" id="attach-tl" name="attach-tl">
                         <SelectValue placeholder="Select TL" />
                       </SelectTrigger>
                       <SelectContent>
                         {teamLeaders.length === 0 ? (
-                          <SelectItem value="__none__" disabled>No TLs available</SelectItem>
+                          <SelectItem value="no-tls" disabled>No TLs available</SelectItem>
                         ) : (
                           teamLeaders.map((tl) => (
                             <SelectItem key={tl.id} value={tl.id}>{tl.name}</SelectItem>
@@ -873,9 +1099,10 @@ export default function RecordSalePage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  
                   {/* Select Captain */}
                   <div>
-                    <Label>Captain *</Label>
+                    <Label htmlFor="attach-captain">Captain *</Label>
                     <Select
                       value={formData.captain_id}
                       onValueChange={(v) => {
@@ -883,12 +1110,12 @@ export default function RecordSalePage() {
                       }}
                       disabled={!formData.team_leader_id}
                     >
-                      <SelectTrigger className="glass-input">
+                      <SelectTrigger className="glass-input" id="attach-captain" name="attach-captain">
                         <SelectValue placeholder={formData.team_leader_id ? 'Select captain' : 'Select TL first'} />
                       </SelectTrigger>
                       <SelectContent>
                         {filteredCaptains.length === 0 ? (
-                          <SelectItem value="__none__" disabled>No captains under this TL</SelectItem>
+                          <SelectItem value="no-captains" disabled>No captains under this TL</SelectItem>
                         ) : (
                           filteredCaptains.map((captain) => (
                             <SelectItem key={captain.id} value={captain.id}>{captain.name}</SelectItem>
@@ -897,222 +1124,250 @@ export default function RecordSalePage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  
                   {/* Select DSR */}
                   <div>
-                    <Label>DSR *</Label>
+                    <Label htmlFor="attach-dsr">DSR *</Label>
                     <Select
                       value={formData.dsr_id}
                       onValueChange={handleDsrChange}
                       disabled={!formData.captain_id}
                     >
-                      <SelectTrigger className="glass-input">
+                      <SelectTrigger className="glass-input" id="attach-dsr" name="attach-dsr">
                         <SelectValue placeholder={formData.captain_id ? 'Select DSR' : 'Select captain first'} />
                       </SelectTrigger>
                       <SelectContent>
                         {filteredDsrs.length === 0 ? (
-                          <SelectItem value="__none__" disabled>No DSRs under this captain</SelectItem>
+                          <SelectItem value="no-dsrs" disabled>No DSRs under this captain</SelectItem>
                         ) : (
                           filteredDsrs.map((dsr) => (
-                            <SelectItem key={dsr.id} value={dsr.id}>{dsr.name}{dsr.dsr_number ? ` - ${dsr.dsr_number}` : ''}</SelectItem>
+                            <SelectItem key={dsr.id} value={dsr.id}>
+                              {dsr.name}{dsr.dsr_number ? ` - ${dsr.dsr_number}` : ''}
+                            </SelectItem>
                           ))
                         )}
                       </SelectContent>
                     </Select>
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">Select TL, then Captain, then DSR to attach to this sale.</p>
+                  <p className="text-xs text-muted-foreground">Select TL → Captain → DSR to attach to this sale.</p>
                 </div>
               ) : (
                 <>
-              {/* 1. Select Region */}
-              <div>
-                <Label>Region *</Label>
-                <Select value={formData.region_id} onValueChange={handleRegionChange}>
-                  <SelectTrigger className="glass-input">
-                    <SelectValue placeholder="Select region" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {regions.map((r) => (
-                      <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  {/* 1. Select Region */}
+                  <div>
+                    <Label htmlFor="region">Region *</Label>
+                    <Select value={formData.region_id} onValueChange={handleRegionChange}>
+                      <SelectTrigger className="glass-input" id="region" name="region">
+                        <SelectValue placeholder="Select region" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {regions.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              {/* 2. Select Team Leader (filtered by region) */}
-              <div>
-                <Label>Team Leader *</Label>
-                <Select
-                  value={formData.team_leader_id}
-                  onValueChange={handleTLChange}
-                  disabled={!formData.region_id}
-                >
-                  <SelectTrigger className="glass-input">
-                    <SelectValue placeholder={formData.region_id ? 'Select TL' : 'Select region first'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {filteredTLs.length === 0 ? (
-                      <SelectItem value="__none__" disabled>No TLs in this region</SelectItem>
-                    ) : (
-                      filteredTLs.map((tl) => (
-                        <SelectItem key={tl.id} value={tl.id}>{tl.name}</SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
+                  {/* 2. Select Team Leader (filtered by region) */}
+                  <div>
+                    <Label htmlFor="team-leader">Team Leader *</Label>
+                    <Select
+                      value={formData.team_leader_id}
+                      onValueChange={handleTLChange}
+                      disabled={!formData.region_id}
+                    >
+                      <SelectTrigger className="glass-input" id="team-leader" name="team-leader">
+                        <SelectValue placeholder={formData.region_id ? 'Select TL' : 'Select region first'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {filteredTLs.length === 0 ? (
+                          <SelectItem value="no-tls-region" disabled>No TLs in this region</SelectItem>
+                        ) : (
+                          filteredTLs.map((tl) => (
+                            <SelectItem key={tl.id} value={tl.id}>{tl.name}</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              <div>
-                <Label>Captain</Label>
-                <Select
-                  value={formData.captain_id}
-                  onValueChange={handleCaptainChange}
-                  disabled={!formData.team_leader_id}
-                >
-                  <SelectTrigger className="glass-input">
-                    <SelectValue placeholder={formData.team_leader_id ? 'Select captain' : 'Select TL first'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {filteredCaptains.length === 0 ? (
-                      <SelectItem value="__none__" disabled>No captains under this TL</SelectItem>
-                    ) : (
-                      filteredCaptains.map((captain) => (
-                        <SelectItem key={captain.id} value={captain.id}>{captain.name}</SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
+                  <div>
+                    <Label htmlFor="captain">Captain (Optional)</Label>
+                    <Select
+                      value={formData.captain_id || 'none'}
+                      onValueChange={(v) => {
+                        if (v === 'none') {
+                          handleCaptainChange('');
+                        } else {
+                          handleCaptainChange(v);
+                        }
+                      }}
+                      disabled={!formData.team_leader_id}
+                    >
+                      <SelectTrigger className="glass-input" id="captain" name="captain">
+                        <SelectValue placeholder={formData.team_leader_id ? 'Select captain' : 'Select TL first'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {filteredCaptains.map((captain) => (
+                          <SelectItem key={captain.id} value={captain.id}>{captain.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              <div>
-                <Label>DSR</Label>
-                <Select
-                  value={formData.dsr_id}
-                  onValueChange={handleDsrChange}
-                  disabled={!formData.captain_id}
-                >
-                  <SelectTrigger className="glass-input">
-                    <SelectValue placeholder={formData.captain_id ? 'Select DSR' : 'Select captain first'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {filteredDsrs.length === 0 ? (
-                      <SelectItem value="__none__" disabled>No DSRs under this captain</SelectItem>
-                    ) : (
-                      filteredDsrs.map((dsr) => (
-                        <SelectItem key={dsr.id} value={dsr.id}>{dsr.name}{dsr.dsr_number ? ` - ${dsr.dsr_number}` : ''}</SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-                <p className="mt-1 text-xs text-muted-foreground">If DSR is missing, the sale will stay marked as Incomplete.</p>
-              </div>
-
-              {/* 3. Select Stock (all in hand for TL, Captain, DSR) */}
-              {!editingSale && (
-                <>
-                  <Label>Stock Item * <span className="text-muted-foreground text-xs">({tlStock.length} available)</span></Label>
-                  <Select
-                    value={formData.inventory_id}
-                    onValueChange={(v) => setFormData({ ...formData, inventory_id: v })}
-                    disabled={!formData.team_leader_id}
-                  >
-                    <SelectTrigger className="glass-input">
-                      <SelectValue placeholder={formData.team_leader_id ? 'Select stock' : 'Select TL first'} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tlStock.length === 0 ? (
-                        <SelectItem value="__none__" disabled>No stock assigned to TL, Captain, or DSR</SelectItem>
-                      ) : (
-                        tlStock.map((inv) => (
-                          <SelectItem key={inv.id} value={inv.id}>
-                            {inv.smartcard_number} - {inv.stock_type} ({inv.assigned_to_type}: {inv.assigned_to_id})
+                  <div>
+                    <Label htmlFor="dsr">DSR (Optional)</Label>
+                    <Select
+                      value={formData.dsr_id || 'none'}
+                      onValueChange={(v) => {
+                        if (v === 'none') {
+                          handleDsrChange('');
+                        } else {
+                          handleDsrChange(v);
+                        }
+                      }}
+                      disabled={!formData.captain_id}
+                    >
+                      <SelectTrigger className="glass-input" id="dsr" name="dsr">
+                        <SelectValue placeholder={formData.captain_id ? 'Select DSR' : 'Select captain first'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {filteredDsrs.map((dsr) => (
+                          <SelectItem key={dsr.id} value={dsr.id}>
+                            {dsr.name}{dsr.dsr_number ? ` - ${dsr.dsr_number}` : ''}
                           </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">If DSR is missing, the sale will stay marked as Incomplete.</p>
+                  </div>
+
+                  {/* 3. Select Stock (all in hand for TL, Captain, DSR) */}
+                  {!editingSale && (
+                    <div>
+                      <Label htmlFor="stock-item">Stock Item * <span className="text-muted-foreground text-xs">({tlStock.length} available)</span></Label>
+                      <Select
+                        value={formData.inventory_id}
+                        onValueChange={(v) => setFormData({ ...formData, inventory_id: v })}
+                        disabled={!formData.team_leader_id}
+                      >
+                        <SelectTrigger className="glass-input" id="stock-item" name="stock-item">
+                          <SelectValue placeholder={formData.team_leader_id ? 'Select stock' : 'Select TL first'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {tlStock.length === 0 ? (
+                            <SelectItem value="no-stock" disabled>No stock assigned to TL, Captain, or DSR</SelectItem>
+                          ) : (
+                            tlStock.map((inv) => (
+                              <SelectItem key={inv.id} value={inv.id}>
+                                {inv.smartcard_number} - {inv.stock_type} 
+                                ({inv.assigned_to_type}: {inv.assigned_to_id?.slice(0, 8)})
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {/* 3b. Select Seller (who sold) */}
+                  <div>
+                    <Label htmlFor="sold-by">Sold By *</Label>
+                    <Select
+                      value={formData.seller_id || 'none'}
+                      onValueChange={(v) => {
+                        if (v === 'none') {
+                          setFormData({ ...formData, seller_id: '', seller_type: '' });
+                        } else {
+                          // Find type by id
+                          let type = '';
+                          if (v === formData.team_leader_id) type = 'team_leader';
+                          else if (captains.some(c => c.id === v)) type = 'captain';
+                          else if (dsrs.some(d => d.id === v)) type = 'dsr';
+                          setFormData({ ...formData, seller_id: v, seller_type: type });
+                        }
+                      }}
+                      disabled={!formData.team_leader_id}
+                    >
+                      <SelectTrigger className="glass-input" id="sold-by" name="sold-by">
+                        <SelectValue placeholder={formData.team_leader_id ? 'Select who sold' : 'Select TL first'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {formData.team_leader_id && (
+                          <SelectItem value={formData.team_leader_id}>
+                            TL: {teamLeaderMap.get(formData.team_leader_id)?.name}
+                          </SelectItem>
+                        )}
+                        {filteredCaptains.map(c => (
+                          <SelectItem key={c.id} value={c.id}>Captain: {c.name}</SelectItem>
+                        ))}
+                        {filteredDsrs.map(d => (
+                          <SelectItem key={d.id} value={d.id}>
+                            DSR: {d.name}{d.dsr_number ? ` - ${d.dsr_number}` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">Select the actual seller (TL, Captain, or DSR).</p>
+                  </div>
+
+                  {/* 4. Package Status */}
+                  <div>
+                    <Label htmlFor="package-status">Package Status</Label>
+                    <Select
+                      value={formData.package_status}
+                      onValueChange={(v) => setFormData({ ...formData, package_status: v })}
+                    >
+                      <SelectTrigger className="glass-input" id="package-status" name="package-status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Packaged">Packaged</SelectItem>
+                        <SelectItem value="No Package">No Package</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* 5. Payment Status */}
+                  <div>
+                    <Label htmlFor="payment-status">Payment Status</Label>
+                    <Select
+                      value={formData.payment_status}
+                      onValueChange={(v) => setFormData({ ...formData, payment_status: v })}
+                    >
+                      <SelectTrigger className="glass-input" id="payment-status" name="payment-status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Paid">Paid</SelectItem>
+                        <SelectItem value="Unpaid">Unpaid</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* 6. Sale Date */}
+                  <div>
+                    <Label htmlFor="sale-date">Sale Date</Label>
+                    <Input
+                      id="sale-date"
+                      name="sale-date"
+                      type="date"
+                      value={formData.sale_date}
+                      onChange={(e) => setFormData({ ...formData, sale_date: e.target.value })}
+                      className="glass-input"
+                    />
+                  </div>
                 </>
               )}
-
-              {/* 3b. Select Seller (who sold) */}
-              <div>
-                <Label>Sold By *</Label>
-                <Select
-                  value={formData.seller_id || ''}
-                  onValueChange={(v) => {
-                    // Find type by id
-                    let type = '';
-                    if (v === formData.team_leader_id) type = 'team_leader';
-                    else if (captains.some(c => c.id === v)) type = 'captain';
-                    else if (dsrs.some(d => d.id === v)) type = 'dsr';
-                    setFormData({ ...formData, seller_id: v, seller_type: type });
-                  }}
-                  disabled={!formData.team_leader_id}
-                >
-                  <SelectTrigger className="glass-input">
-                    <SelectValue placeholder={formData.team_leader_id ? 'Select who sold' : 'Select TL first'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={formData.team_leader_id}>TL: {teamLeaders.find(t => t.id === formData.team_leader_id)?.name}</SelectItem>
-                    {filteredCaptains.map(c => (
-                      <SelectItem key={c.id} value={c.id}>Captain: {c.name}</SelectItem>
-                    ))}
-                    {filteredDsrs.map(d => (
-                      <SelectItem key={d.id} value={d.id}>DSR: {d.name}{d.dsr_number ? ` - ${d.dsr_number}` : ''}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="mt-1 text-xs text-muted-foreground">Select the actual seller (TL, Captain, or DSR).</p>
-              </div>
-
-              {/* 4. Package Status */}
-              <div>
-                <Label>Package Status</Label>
-                <Select
-                  value={formData.package_status}
-                  onValueChange={(v) => setFormData({ ...formData, package_status: v })}
-                >
-                  <SelectTrigger className="glass-input">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Packaged">Packaged</SelectItem>
-                    <SelectItem value="No Package">No Package</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* 5. Payment Status */}
-              <div>
-                <Label>Payment Status</Label>
-                <Select
-                  value={formData.payment_status}
-                  onValueChange={(v) => setFormData({ ...formData, payment_status: v })}
-                >
-                  <SelectTrigger className="glass-input">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Paid">Paid</SelectItem>
-                    <SelectItem value="Unpaid">Unpaid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* 6. Sale Date */}
-              <div>
-                <Label>Sale Date</Label>
-                <Input
-                  type="date"
-                  value={formData.sale_date}
-                  onChange={(e) => setFormData({ ...formData, sale_date: e.target.value })}
-                  className="glass-input"
-                />
-              </div>
-            </>
-          )}
-        </div>
+            </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              <Button variant="outline" onClick={() => {
+                resetForm();
+                setDialogOpen(false);
+              }}>
                 Cancel
               </Button>
               <Button
@@ -1123,7 +1378,7 @@ export default function RecordSalePage() {
                     : (!formData.inventory_id && !editingSale)
                 )}
               >
-                {saving ? 'Saving...' : editingSale ? 'Update' : 'Record Sale'}
+                {saving ? 'Saving...' : (attachDsrMode ? 'Attach DSR' : (editingSale ? 'Update' : 'Record Sale'))}
               </Button>
             </DialogFooter>
           </DialogContent>

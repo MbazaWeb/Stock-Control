@@ -1,3 +1,160 @@
+import * as XLSX from 'xlsx';
+  const [bulkUploadFile, setBulkUploadFile] = useState<File | null>(null);
+  const [bulkUploadPreview, setBulkUploadPreview] = useState<any[]>([]);
+  const [bulkUploadError, setBulkUploadError] = useState<string | null>(null);
+  // Download template for bulk DSR upload
+  const handleDownloadTemplate = () => {
+    const headers = [
+      'DSR Name', 'DSR Number', 'Phone', 'Captain', 'TL Name', 'FSS Account', 'Region', 'District', 'Ward', 'Village'
+    ];
+    const ws = XLSX.utils.aoa_to_sheet([headers]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'DSRs');
+    XLSX.writeFile(wb, 'dsr_bulk_template.xlsx');
+  };
+
+  // Handle file upload and parse Excel/CSV
+  const handleBulkFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setBulkUploadError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkUploadFile(file);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const data = evt.target?.result;
+      if (!data) return;
+      let workbook;
+      try {
+        workbook = XLSX.read(data, { type: 'binary' });
+      } catch (err) {
+        setBulkUploadError('Failed to read file. Please upload a valid Excel or CSV file.');
+        return;
+      }
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      setBulkUploadPreview(rows as any[]);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // Handle actual upload
+  const handleBulkUploadSubmit = async () => {
+    if (!bulkDsrData.captain_id || !bulkDsrData.tl_id) {
+      setBulkUploadError('Please select Team Leader and Captain.');
+      return;
+    }
+    if (!bulkUploadPreview.length) {
+      setBulkUploadError('No data to upload.');
+      return;
+    }
+    setProcessingBulk(true);
+    let successCount = 0;
+    let errorCount = 0;
+    for (const row of bulkUploadPreview) {
+      const dsr = {
+        name: row['DSR Name'],
+        dsr_number: row['DSR Number'],
+        phone: row['Phone'],
+        captain_id: bulkDsrData.captain_id,
+        // Optionally add more fields here
+        has_fss_account: row['FSS Account']?.toLowerCase() === 'yes',
+        fss_username: row['FSS Account']?.toLowerCase() === 'yes' ? row['FSS Account'] : null,
+        district: row['District'],
+        ward: row['Ward'],
+        street_village: row['Village'],
+      };
+      const { error } = await supabase.from('dsrs').insert([dsr]);
+      if (error) errorCount++; else successCount++;
+    }
+    setProcessingBulk(false);
+    setBulkUploadFile(null);
+    setBulkUploadPreview([]);
+    setBulkUploadError(null);
+    setBulkDsrDialogOpen(false);
+    toast({ title: 'Bulk Upload Complete', description: `${successCount} DSRs uploaded, ${errorCount} failed.` });
+    fetchData();
+  };
+        {/* Bulk DSR Upload Dialog */}
+        <Dialog open={bulkDsrDialogOpen} onOpenChange={setBulkDsrDialogOpen}>
+          <DialogContent className="glass-card border-border/50 max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Bulk Upload DSRs</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <Label>Team Leader *</Label>
+                  <Select value={bulkDsrData.tl_id || ''} onValueChange={v => setBulkDsrData(d => ({ ...d, tl_id: v, captain_id: '' }))}>
+                    <SelectTrigger className="glass-input">
+                      <SelectValue placeholder="Select Team Leader" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teamLeaders.map(tl => (
+                        <SelectItem key={tl.id} value={tl.id}>{tl.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex-1">
+                  <Label>Captain *</Label>
+                  <Select value={bulkDsrData.captain_id || ''} onValueChange={v => setBulkDsrData(d => ({ ...d, captain_id: v }))} disabled={!bulkDsrData.tl_id}>
+                    <SelectTrigger className="glass-input">
+                      <SelectValue placeholder={bulkDsrData.tl_id ? 'Select Captain' : 'Select TL first'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {captains.filter(c => c.team_leader_id === bulkDsrData.tl_id).map(captain => (
+                        <SelectItem key={captain.id} value={captain.id}>{captain.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex gap-4 items-end">
+                <Button variant="outline" onClick={handleDownloadTemplate}>
+                  <Download className="w-4 h-4 mr-2" /> Download Template
+                </Button>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label>Upload Excel/CSV File *</Label>
+                <Input type="file" accept=".xlsx,.xls,.csv" onChange={handleBulkFileChange} className="w-auto" />
+              </div>
+              {bulkUploadError && <div className="text-destructive text-sm">{bulkUploadError}</div>}
+              {bulkUploadPreview.length > 0 && (
+                <div className="overflow-x-auto border rounded">
+                  <table className="min-w-full text-xs">
+                    <thead>
+                      <tr>
+                        <th>DSR Name</th><th>DSR Number</th><th>Phone</th><th>Captain</th><th>TL Name</th><th>FSS Account</th><th>Region</th><th>District</th><th>Ward</th><th>Village</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bulkUploadPreview.map((row, i) => (
+                        <tr key={i}>
+                          <td>{row['DSR Name']}</td>
+                          <td>{row['DSR Number']}</td>
+                          <td>{row['Phone']}</td>
+                          <td>{row['Captain']}</td>
+                          <td>{row['TL Name']}</td>
+                          <td>{row['FSS Account']}</td>
+                          <td>{row['Region']}</td>
+                          <td>{row['District']}</td>
+                          <td>{row['Ward']}</td>
+                          <td>{row['Village']}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setBulkDsrDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleBulkUploadSubmit} disabled={!bulkDsrData.tl_id || !bulkDsrData.captain_id || !bulkUploadPreview.length || processingBulk}>
+                {processingBulk ? 'Uploading...' : 'Upload'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
