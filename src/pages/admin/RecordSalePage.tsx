@@ -393,8 +393,8 @@ export default function RecordSalePage() {
 
       if (editingSale) {
         // Ensure all required fields are present for update
-        if (!saleData.inventory_id) saleData.inventory_id = editingSale.inventory_id;
-        if (!saleData.region_id) saleData.region_id = editingSale.region_id;
+        if (!saleData.inventory_id) saleData.inventory_id = editingSale.inventory_id ?? '';
+        if (!saleData.region_id) saleData.region_id = editingSale.region_id ?? '';
         if (!saleData.smartcard_number) saleData.smartcard_number = editingSale.smartcard_number;
         if (!saleData.serial_number) saleData.serial_number = editingSale.serial_number;
         if (!saleData.stock_type) saleData.stock_type = editingSale.stock_type;
@@ -1113,10 +1113,11 @@ export default function RecordSalePage() {
               </Button>
               <Button
                 onClick={handleSubmit}
-                disabled={saving || (attachDsrMode
-                  ? !(formData.team_leader_id && formData.captain_id && formData.dsr_id)
-                  : !formData.inventory_id)
-                }
+                disabled={saving || (
+                  attachDsrMode
+                    ? !(formData.team_leader_id && formData.captain_id && formData.dsr_id)
+                    : (!formData.inventory_id && !editingSale)
+                )}
               >
                 {saving ? 'Saving...' : editingSale ? 'Update' : 'Record Sale'}
               </Button>
