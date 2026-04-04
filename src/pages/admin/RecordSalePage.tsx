@@ -109,6 +109,8 @@ interface InventoryItem {
   smartcard_number: string;
   serial_number: string;
   stock_type: string;
+  assigned_to_type?: string;
+  assigned_to_id?: string;
 }
 
 export default function RecordSalePage() {
@@ -147,6 +149,8 @@ export default function RecordSalePage() {
     package_status: 'No Package',
     payment_status: 'Unpaid',
     sale_date: new Date().toISOString().split('T')[0],
+    seller_type: '',
+    seller_id: '',
   });
 
   const salesDateRange = createSalesDateRange(salesDatePreset, salesDateFrom, salesDateTo);
@@ -231,7 +235,7 @@ export default function RecordSalePage() {
       ];
 
       // Fetch all stock assigned to any of these
-      let allStock = [];
+      let allStock: InventoryItem[] = [];
       for (const a of assignments) {
         const { data } = await supabase
           .from('inventory')
@@ -239,7 +243,21 @@ export default function RecordSalePage() {
           .eq('assigned_to_type', a.type)
           .eq('assigned_to_id', a.id)
           .eq('status', 'assigned');
-        if (data) allStock = allStock.concat(data);
+        if (data) {
+          const mapped = data.map((item: {
+            id: string;
+            smartcard_number: string;
+            serial_number: string;
+            stock_type: string;
+            assigned_to_type: string | null;
+            assigned_to_id: string | null;
+          }): InventoryItem => ({
+            ...item,
+            assigned_to_type: item.assigned_to_type === null ? undefined : item.assigned_to_type,
+            assigned_to_id: item.assigned_to_id === null ? undefined : item.assigned_to_id,
+          }));
+          allStock = allStock.concat(mapped);
+        }
       }
       setTlStock(allStock);
     };
@@ -263,14 +281,14 @@ export default function RecordSalePage() {
     setFormData({
       region_id: '',
       team_leader_id: '',
-      seller_type: '', // new: TL, Captain, or DSR
-      seller_id: '',   // new: id of seller
       captain_id: '',
       dsr_id: '',
       inventory_id: '',
       package_status: 'No Package',
       payment_status: 'Unpaid',
       sale_date: new Date().toISOString().split('T')[0],
+      seller_type: '',
+      seller_id: '',
     });
     setTlStock([]);
   };
@@ -422,6 +440,8 @@ export default function RecordSalePage() {
       package_status: sale.package_status,
       payment_status: sale.payment_status,
       sale_date: sale.sale_date,
+      seller_type: '',
+      seller_id: '',
     });
     setDialogOpen(true);
   };
@@ -725,7 +745,30 @@ export default function RecordSalePage() {
                           <div className="text-xs text-muted-foreground">{dsrs.find((dsr) => dsr.id === sale.dsr_id)?.dsr_number || 'No D number'}</div>
                         </div>
                       ) : (
-                        <span className="text-amber-600 text-sm">Not attached</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-amber-600 text-xs border-amber-400"
+                          onClick={() => {
+                            setEditingSale(sale);
+                            setFormData({
+                              region_id: sale.region_id || '',
+                              team_leader_id: sale.team_leader_id || '',
+                              captain_id: sale.captain_id || '',
+                              dsr_id: '',
+                              inventory_id: sale.inventory_id || '',
+                              package_status: sale.package_status,
+                              payment_status: sale.payment_status,
+                              sale_date: sale.sale_date,
+                              seller_type: '',
+                              seller_id: '',
+                            });
+                            setDialogOpen(true);
+                          }}
+                        >
+                          Incomplete / Not Scanned<br />
+                          <span className="underline">Quick Scan / Complete</span>
+                        </Button>
                       )}
                     </TableCell>
                     <TableCell>
