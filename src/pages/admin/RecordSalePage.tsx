@@ -766,8 +766,7 @@ export default function RecordSalePage() {
                             setDialogOpen(true);
                           }}
                         >
-                          Incomplete / Not Scanned<br />
-                          <span className="underline">Quick Scan / Complete</span>
+                          <span className="underline">Attach DSR</span>
                         </Button>
                       )}
                     </TableCell>
@@ -809,7 +808,7 @@ export default function RecordSalePage() {
 
         {/* Simple Add/Edit Dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="glass-card border-border/50 max-w-md">
+          <DialogContent className="glass-card border-border/50 max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingSale ? 'Edit Sale' : 'Record New Sale'}</DialogTitle>
             </DialogHeader>
@@ -894,7 +893,7 @@ export default function RecordSalePage() {
                     )}
                   </SelectContent>
                 </Select>
-                <p className="mt-1 text-xs text-muted-foreground">If DSR is missing, the sale will stay marked as incomplete / not scanned.</p>
+                <p className="mt-1 text-xs text-muted-foreground">If DSR is missing, the sale will stay marked as Incomplete.</p>
               </div>
 
               {/* 3. Select Stock (all in hand for TL, Captain, DSR) */}

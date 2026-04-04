@@ -1,7 +1,7 @@
 export const isSaleComplete = (dsrId: string | null | undefined) => Boolean(dsrId);
 
 export const getSaleCompletionLabel = (dsrId: string | null | undefined) =>
-  isSaleComplete(dsrId) ? 'Complete' : 'Incomplete / Not Scanned';
+  isSaleComplete(dsrId) ? 'Complete' : 'Incomplete';
 
 export const getSaleCompletionBadgeClass = (dsrId: string | null | undefined) =>
   isSaleComplete(dsrId)

@@ -12,46 +12,35 @@ import {
   RefreshCw,
   ExternalLink
 } from 'lucide-react';
-// ExcelJS loaded dynamically in upload/download functions
-import AdminLayout from '@/components/layout/AdminLayout';
-import GlassCard from '@/components/ui/GlassCard';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import GlassCard from '@/components/ui/GlassCard';
+import { Progress } from '@/components/ui/progress';
+import AdminLayout from '@/components/layout/AdminLayout';
 import {
   Table,
-  TableBody,
-  TableCell,
-  TableHead,
   TableHeader,
+  TableBody,
   TableRow,
+  TableHead,
+  TableCell
 } from '@/components/ui/table';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
+  DialogFooter,
   DialogTitle,
+  DialogDescription
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 
 interface ImportRow {
   rowNumber: number;
   smartcard_number: string;
   serial_number: string;
   customer_name: string;
-  customer_phone: string;
-  payment_status: string;
-  package_status: string;
   status: 'valid' | 'error' | 'warning' | 'duplicate';
   message: string;
   inventoryId?: string;
@@ -66,6 +55,7 @@ interface ImportSummary {
   duplicates: number;
 }
 
+
 const SCANNED_WORKBOOK_URL = 'https://multichoicegroup-my.sharepoint.com/:x:/r/personal/juma_diwani_multichoice_co_tz/_layouts/15/doc2.aspx?sourcedoc=%7B162E1A48-AB00-4105-AB6D-2CDAA9D57185%7D&file=Unscanned.xlsx&action=default&mobileredirect=true&DefaultItemOpen=1&wdOrigin=APPHOME-WEB.DIRECT%2CAPPHOME-WEB.UNAUTH%2CAPPHOME-WEB.SHELL.SIGNIN%2CAPPHOME-WEB.JUMPBACKIN&wdPreviousSession=19b651eb-a28a-4344-aab3-d89006293df2&wdPreviousSessionSrc=AppHomeWeb&ct=1774527417781';
 const SCANNED_WORKBOOK_DOWNLOAD_URL = `${SCANNED_WORKBOOK_URL}&download=1`;
 
@@ -79,8 +69,7 @@ export default function GlobalImportPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [defaultPaymentStatus, setDefaultPaymentStatus] = useState('Unpaid');
-  const [defaultPackageStatus, setDefaultPackageStatus] = useState('No Package');
+  // No default payment/package status needed
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -103,13 +92,10 @@ export default function GlobalImportPage() {
       // Skip header row
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber === 1) return; // Skip header
-        
+
         const smartcard = String(row.getCell(1).value || '').trim();
         const serial = String(row.getCell(2).value || '').trim().toUpperCase();
         const customerName = String(row.getCell(3).value || '').trim();
-        const customerPhone = String(row.getCell(4).value || '').trim();
-        const paymentStatus = String(row.getCell(5).value || defaultPaymentStatus).trim();
-        const packageStatus = String(row.getCell(6).value || defaultPackageStatus).trim();
 
         if (!smartcard) return; // Skip rows without smartcard
 
@@ -118,9 +104,6 @@ export default function GlobalImportPage() {
           smartcard_number: smartcard,
           serial_number: serial,
           customer_name: customerName,
-          customer_phone: customerPhone,
-          payment_status: paymentStatus || defaultPaymentStatus,
-          package_status: packageStatus || defaultPackageStatus,
           status: 'valid',
           message: ''
         };
@@ -238,15 +221,11 @@ export default function GlobalImportPage() {
 
     for (const row of validRows) {
       try {
-        // Update inventory status to sold
+        // Update inventory status to sold only
         if (row.inventoryId) {
           await supabase
             .from('inventory')
-            .update({
-              status: 'sold',
-              payment_status: row.payment_status,
-              package_status: row.package_status
-            })
+            .update({ status: 'sold' })
             .eq('id', row.inventoryId);
 
           // Check if sales record exists
@@ -257,14 +236,11 @@ export default function GlobalImportPage() {
             .maybeSingle();
 
           if (existingSale) {
-            // Update existing sales record
+            // Update existing sales record (only customer name)
             await supabase
               .from('sales_records')
               .update({
-                customer_name: row.customer_name || null,
-                customer_phone: row.customer_phone || null,
-                payment_status: row.payment_status,
-                package_status: row.package_status
+                customer_name: row.customer_name || null
               })
               .eq('id', existingSale.id);
           } else {
@@ -276,16 +252,13 @@ export default function GlobalImportPage() {
               .single();
 
             if (inv) {
-              // Create sales record
+              // Create sales record (only customer name, no payment/package)
               await supabase.from('sales_records').insert({
                 inventory_id: row.inventoryId,
                 smartcard_number: row.smartcard_number,
                 serial_number: row.serial_number,
                 stock_type: inv.stock_type,
                 customer_name: row.customer_name || null,
-                customer_phone: row.customer_phone || null,
-                payment_status: row.payment_status,
-                package_status: row.package_status,
                 zone_id: inv.zone_id,
                 region_id: inv.region_id,
                 team_leader_id: inv.assigned_to_type === 'team_leader' ? inv.assigned_to_id : null,
@@ -327,28 +300,19 @@ export default function GlobalImportPage() {
     worksheet.columns = [
       { header: 'Smartcard Number', key: 'smartcard', width: 20 },
       { header: 'Serial Number', key: 'serial', width: 20 },
-      { header: 'Customer Name', key: 'customer_name', width: 25 },
-      { header: 'Customer Phone', key: 'customer_phone', width: 20 },
-      { header: 'Payment Status', key: 'payment_status', width: 15 },
-      { header: 'Package Status', key: 'package_status', width: 15 }
+      { header: 'Customer Name (optional)', key: 'customer_name', width: 25 }
     ];
 
     // Add sample data
     worksheet.addRow({
       smartcard: '1234567890',
       serial: 'SN-ABC123',
-      customer_name: 'John Doe',
-      customer_phone: '+254712345678',
-      payment_status: 'Paid',
-      package_status: 'Packaged'
+      customer_name: 'John Doe'
     });
     worksheet.addRow({
       smartcard: '0987654321',
       serial: 'SN-XYZ789',
-      customer_name: 'Jane Smith',
-      customer_phone: '+254798765432',
-      payment_status: 'Unpaid',
-      package_status: 'No Package'
+      customer_name: 'Jane Smith'
     });
 
     // Style header row
@@ -445,33 +409,7 @@ export default function GlobalImportPage() {
               Use Scanned to open the SharePoint workbook, or Download From Scanned to trigger the direct-download endpoint. Both may ask the admin to sign in with the organization account first.
             </p>
 
-            {/* Default Status Selection */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Default Payment Status</label>
-                <Select value={defaultPaymentStatus} onValueChange={setDefaultPaymentStatus}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Paid">Paid</SelectItem>
-                    <SelectItem value="Unpaid">Unpaid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Default Package Status</label>
-                <Select value={defaultPackageStatus} onValueChange={setDefaultPackageStatus}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Packaged">Packaged</SelectItem>
-                    <SelectItem value="No Package">No Package</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+            {/* Default Status Selection removed as only smartcard is required */}
 
             <div 
               className="border-2 border-dashed border-muted-foreground/25 rounded-xl p-8 text-center hover:border-primary/50 transition-colors cursor-pointer"
@@ -569,8 +507,6 @@ export default function GlobalImportPage() {
                     <TableHead>Smartcard</TableHead>
                     <TableHead>Serial</TableHead>
                     <TableHead>Customer</TableHead>
-                    <TableHead>Payment</TableHead>
-                    <TableHead>Package</TableHead>
                     <TableHead>Message</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -587,18 +523,6 @@ export default function GlobalImportPage() {
                       <TableCell className="font-mono">{row.smartcard_number}</TableCell>
                       <TableCell className="font-mono">{row.serial_number}</TableCell>
                       <TableCell>{row.customer_name || '-'}</TableCell>
-                      <TableCell>
-                        <Badge variant={row.payment_status === 'Paid' ? 'default' : 'secondary'}>
-                          <CreditCard className="h-3 w-3 mr-1" />
-                          {row.payment_status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={row.package_status === 'Packaged' ? 'default' : 'secondary'}>
-                          <Package className="h-3 w-3 mr-1" />
-                          {row.package_status}
-                        </Badge>
-                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground max-w-xs truncate">
                         {row.message}
                       </TableCell>
@@ -623,9 +547,6 @@ export default function GlobalImportPage() {
               <p><strong>Column A:</strong> Smartcard Number (required)</p>
               <p><strong>Column B:</strong> Serial Number (required)</p>
               <p><strong>Column C:</strong> Customer Name (optional)</p>
-              <p><strong>Column D:</strong> Customer Phone (optional)</p>
-              <p><strong>Column E:</strong> Payment Status - Paid/Unpaid (optional)</p>
-              <p><strong>Column F:</strong> Package Status - Packaged/No Package (optional)</p>
             </div>
           </GlassCard>
 
@@ -641,10 +562,6 @@ export default function GlobalImportPage() {
                 Sales record is created with customer details
               </li>
               <li className="flex items-start gap-2">
-                <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
-                Payment & Package status are set (check later in Unpaid/No Package pages)
-              </li>
-              <li className="flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5 shrink-0" />
                 Items not found in inventory will be skipped
               </li>
@@ -655,7 +572,7 @@ export default function GlobalImportPage() {
 
       {/* Confirm Dialog */}
       <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Confirm Import</DialogTitle>
             <DialogDescription>
