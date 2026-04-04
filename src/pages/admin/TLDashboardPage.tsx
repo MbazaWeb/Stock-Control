@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Calendar, ClipboardCheck, CreditCard, Package, PackageCheck, PackageX, ShoppingCart, Users } from 'lucide-react';
+import { Calendar, ClipboardCheck, CreditCard, Package, PackageCheck, PackageX, ShoppingCart, Users, TrendingUp, Target } from 'lucide-react';
 import AdminLayout from '@/components/layout/AdminLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import SalesDateFilter from '@/components/SalesDateFilter';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/auth-context';
 import { createSalesDateRange, describeSalesDateRange, getDefaultSalesDateRange, type SalesDatePreset } from '@/lib/salesDateRange';
+import { calculateTargetMetrics, DistributedTarget, getCurrentMonthYear, getMonthName } from '@/lib/targetCalculations';
 
 interface DashboardStats {
   stockInHand: number;
@@ -20,6 +22,9 @@ interface DashboardStats {
   noPackageCount: number;
   dsrCount: number;
   auditedDsrCount: number;
+  monthlyTarget: number;
+  monthlyToDate: number;
+  monthlyToDateGap: number;
 }
 
 interface RecentSale {
@@ -53,6 +58,9 @@ export default function TLDashboardPage() {
     noPackageCount: 0,
     dsrCount: 0,
     auditedDsrCount: 0,
+    monthlyTarget: 0,
+    monthlyToDate: 0,
+    monthlyToDateGap: 0,
   });
   const [recentSales, setRecentSales] = useState<RecentSale[]>([]);
   const [recentAudits, setRecentAudits] = useState<RecentAudit[]>([]);
@@ -195,6 +203,34 @@ export default function TLDashboardPage() {
         : { data: [] as Array<{ id: string; name: string }> };
       const auditDsrMap = new Map((auditDsrs || []).map((dsr) => [dsr.id, dsr.name]));
 
+      // Fetch monthly target for TL (only for TLs, not captains)
+      let monthlyTarget = 0;
+      let monthlyToDate = 0;
+      let monthlyToDateGap = 0;
+
+      if (isTeamLeader && ownerId) {
+        const currentMonth = getCurrentMonthYear();
+        const { data: targetData } = await supabase
+          .from('sales_targets')
+          .select('target_amount')
+          .eq('team_leader_id', ownerId)
+          .eq('year', currentMonth.year)
+          .eq('month', currentMonth.month)
+          .single();
+
+        if (targetData) {
+          monthlyTarget = targetData.target_amount;
+          const metrics = calculateTargetMetrics(
+            monthlyTarget,
+            soldThisMonthRes.count || 0,
+            currentMonth.year,
+            currentMonth.month
+          );
+          monthlyToDate = metrics.monthlyToDate;
+          monthlyToDateGap = metrics.monthlyToDateGap;
+        }
+      }
+
       setStats({
         stockInHand: stockInHandRes.count || 0,
         totalStockReceived: totalStockReceivedRes.count || 0,
@@ -206,6 +242,9 @@ export default function TLDashboardPage() {
         noPackageCount: noPackageRes.count || 0,
         dsrCount: dsrRows.length,
         auditedDsrCount: new Set((auditRows || []).map((audit) => audit.dsr_id).filter(Boolean)).size,
+        monthlyTarget,
+        monthlyToDate,
+        monthlyToDateGap,
       });
       setRecentSales(recentSalesRes.data || []);
       setRecentAudits((auditRows || []).map((audit) => ({
@@ -272,6 +311,50 @@ export default function TLDashboardPage() {
               <GlassCard className="p-4 text-center"><Users className="h-6 w-6 mx-auto text-indigo-500 mb-2" /><p className="text-2xl font-bold">{stats.dsrCount}</p><p className="text-sm text-muted-foreground">Total DSR</p></GlassCard>
               <GlassCard className="p-4 text-center"><ClipboardCheck className="h-6 w-6 mx-auto text-green-500 mb-2" /><p className="text-2xl font-bold">{stats.auditedDsrCount}</p><p className="text-sm text-muted-foreground">Audited DSRs</p></GlassCard>
             </div>
+
+            {/* Monthly Target Summary (for Team Leaders only) */}
+            {isTeamLeader && stats.monthlyTarget > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <GlassCard className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-muted-foreground">Monthly Target</span>
+                    <Target className="h-4 w-4 text-primary" />
+                  </div>
+                  <p className="text-3xl font-bold">{stats.monthlyTarget.toLocaleString()}</p>
+                  <div className="mt-3">
+                    <Progress value={(stats.soldThisMonth / stats.monthlyTarget) * 100} className="h-2" />
+                    <p className="text-xs text-muted-foreground mt-2">{stats.soldThisMonth} / {stats.monthlyTarget} ({Math.round((stats.soldThisMonth / stats.monthlyTarget) * 100)}%)</p>
+                  </div>
+                </GlassCard>
+
+                <GlassCard className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-muted-foreground">Monthly To Date Target</span>
+                    <TrendingUp className="h-4 w-4 text-blue-500" />
+                  </div>
+                  <p className="text-3xl font-bold">{stats.monthlyToDate.toLocaleString()}</p>
+                  <div className="mt-3">
+                    <Progress value={(Math.max(0, stats.soldThisMonth) / stats.monthlyToDate) * 100} className="h-2" />
+                    <p className="text-xs text-muted-foreground mt-2">{stats.soldThisMonth} / {stats.monthlyToDate} targets</p>
+                  </div>
+                </GlassCard>
+
+                <GlassCard className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-muted-foreground">Monthly To Date Gap</span>
+                    <Badge className={stats.monthlyToDateGap >= 0 ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}>
+                      {stats.monthlyToDateGap >= 0 ? '+' : ''}{stats.monthlyToDateGap.toLocaleString()}
+                    </Badge>
+                  </div>
+                  <p className={`text-2xl font-bold ${stats.monthlyToDateGap >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {Math.abs(stats.monthlyToDateGap).toLocaleString()}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {stats.monthlyToDateGap >= 0 ? 'Ahead of pace' : 'Behind pace'}
+                  </p>
+                </GlassCard>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               <GlassCard className="p-4">

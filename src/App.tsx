@@ -43,6 +43,7 @@ const ManagerAuditPage = lazy(() => import("./pages/admin/ManagerAuditPage"));
 const AdminAuditPage = lazy(() => import("./pages/admin/AdminAuditPage"));
 const ManagerRecordSalePage = lazy(() => import("./pages/admin/ManagerRecordSalePage"));
 const ManagerSaleRequestsPage = lazy(() => import("./pages/admin/ManagerSaleRequestsPage"));
+const SalesTargetPage = lazy(() => import("./pages/admin/SalesTargetPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -171,6 +172,7 @@ const App = () => (
             <Route path="/admin/tl-no-package" element={<TeamLeaderOnlyRoute><TLNoPackagePage /></TeamLeaderOnlyRoute>} />
             <Route path="/admin/sale-requests" element={<ManagerOnlyRoute><ManagerSaleRequestsPage /></ManagerOnlyRoute>} />
             <Route path="/admin/audits" element={<NonDsrRoute><AuditPageRoute /></NonDsrRoute>} />
+            <Route path="/admin/sales-targets" element={<AdminUserRoute><SalesTargetPage /></AdminUserRoute>} />
             
             <Route path="*" element={<NotFound />} />
           </Routes>
