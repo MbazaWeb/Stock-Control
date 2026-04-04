@@ -444,6 +444,27 @@ export default function RecordSalePage() {
       seller_id: '',
     });
     setDialogOpen(true);
+    setAttachDsrMode(false);
+  };
+
+  // Attach DSR: minimal dialog
+  const [attachDsrMode, setAttachDsrMode] = useState(false);
+  const handleAttachDsr = (sale: SaleRecord) => {
+    setEditingSale(sale);
+    setFormData({
+      region_id: sale.region_id || '',
+      team_leader_id: sale.team_leader_id || '',
+      captain_id: sale.captain_id || '',
+      dsr_id: '',
+      inventory_id: sale.inventory_id || '',
+      package_status: sale.package_status,
+      payment_status: sale.payment_status,
+      sale_date: sale.sale_date,
+      seller_type: '',
+      seller_id: '',
+    });
+    setDialogOpen(true);
+    setAttachDsrMode(true);
   };
 
   const handleUpdatePaymentStatus = async (sale: SaleRecord, status: string) => {
@@ -749,22 +770,7 @@ export default function RecordSalePage() {
                           size="sm"
                           variant="outline"
                           className="text-amber-600 text-xs border-amber-400"
-                          onClick={() => {
-                            setEditingSale(sale);
-                            setFormData({
-                              region_id: sale.region_id || '',
-                              team_leader_id: sale.team_leader_id || '',
-                              captain_id: sale.captain_id || '',
-                              dsr_id: '',
-                              inventory_id: sale.inventory_id || '',
-                              package_status: sale.package_status,
-                              payment_status: sale.payment_status,
-                              sale_date: sale.sale_date,
-                              seller_type: '',
-                              seller_id: '',
-                            });
-                            setDialogOpen(true);
-                          }}
+                          onClick={() => handleAttachDsr(sale)}
                         >
                           <span className="underline">Attach DSR</span>
                         </Button>
@@ -810,9 +816,90 @@ export default function RecordSalePage() {
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent className="glass-card border-border/50 max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{editingSale ? 'Edit Sale' : 'Record New Sale'}</DialogTitle>
+              <DialogTitle>
+                {attachDsrMode
+                  ? 'Attach DSR'
+                  : editingSale
+                  ? 'Edit Sale'
+                  : 'Record New Sale'}
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              {attachDsrMode ? (
+                <div className="space-y-4">
+                  {/* Select TL */}
+                  <div>
+                    <Label>Team Leader *</Label>
+                    <Select
+                      value={formData.team_leader_id}
+                      onValueChange={(v) => {
+                        setFormData({ ...formData, team_leader_id: v, captain_id: '', dsr_id: '' });
+                      }}
+                    >
+                      <SelectTrigger className="glass-input">
+                        <SelectValue placeholder="Select TL" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {teamLeaders.length === 0 ? (
+                          <SelectItem value="__none__" disabled>No TLs available</SelectItem>
+                        ) : (
+                          teamLeaders.map((tl) => (
+                            <SelectItem key={tl.id} value={tl.id}>{tl.name}</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {/* Select Captain */}
+                  <div>
+                    <Label>Captain *</Label>
+                    <Select
+                      value={formData.captain_id}
+                      onValueChange={(v) => {
+                        setFormData({ ...formData, captain_id: v, dsr_id: '' });
+                      }}
+                      disabled={!formData.team_leader_id}
+                    >
+                      <SelectTrigger className="glass-input">
+                        <SelectValue placeholder={formData.team_leader_id ? 'Select captain' : 'Select TL first'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {filteredCaptains.length === 0 ? (
+                          <SelectItem value="__none__" disabled>No captains under this TL</SelectItem>
+                        ) : (
+                          filteredCaptains.map((captain) => (
+                            <SelectItem key={captain.id} value={captain.id}>{captain.name}</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {/* Select DSR */}
+                  <div>
+                    <Label>DSR *</Label>
+                    <Select
+                      value={formData.dsr_id}
+                      onValueChange={handleDsrChange}
+                      disabled={!formData.captain_id}
+                    >
+                      <SelectTrigger className="glass-input">
+                        <SelectValue placeholder={formData.captain_id ? 'Select DSR' : 'Select captain first'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {filteredDsrs.length === 0 ? (
+                          <SelectItem value="__none__" disabled>No DSRs under this captain</SelectItem>
+                        ) : (
+                          filteredDsrs.map((dsr) => (
+                            <SelectItem key={dsr.id} value={dsr.id}>{dsr.name}{dsr.dsr_number ? ` - ${dsr.dsr_number}` : ''}</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">Select TL, then Captain, then DSR to attach to this sale.</p>
+                </div>
+              ) : (
+                <>
               {/* 1. Select Region */}
               <div>
                 <Label>Region *</Label>
@@ -897,29 +984,27 @@ export default function RecordSalePage() {
               </div>
 
               {/* 3. Select Stock (all in hand for TL, Captain, DSR) */}
-              <div>
-                <Label>Stock Item * <span className="text-muted-foreground text-xs">({tlStock.length} available)</span></Label>
-                <Select
-                  value={formData.inventory_id}
-                  onValueChange={(v) => setFormData({ ...formData, inventory_id: v })}
-                  disabled={!formData.team_leader_id}
-                >
-                  <SelectTrigger className="glass-input">
-                    <SelectValue placeholder={formData.team_leader_id ? 'Select stock' : 'Select TL first'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tlStock.length === 0 ? (
-                      <SelectItem value="__none__" disabled>No stock assigned to TL, Captain, or DSR</SelectItem>
-                    ) : (
-                      tlStock.map((inv) => (
-                        <SelectItem key={inv.id} value={inv.id}>
-                          {inv.smartcard_number} - {inv.stock_type} ({inv.assigned_to_type}: {inv.assigned_to_id})
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
+              <Label>Stock Item * <span className="text-muted-foreground text-xs">({tlStock.length} available)</span></Label>
+              <Select
+                value={formData.inventory_id}
+                onValueChange={(v) => setFormData({ ...formData, inventory_id: v })}
+                disabled={!formData.team_leader_id || !!editingSale}
+              >
+                <SelectTrigger className="glass-input">
+                  <SelectValue placeholder={formData.team_leader_id ? 'Select stock' : 'Select TL first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {tlStock.length === 0 ? (
+                    <SelectItem value="__none__" disabled>No stock assigned to TL, Captain, or DSR</SelectItem>
+                  ) : (
+                    tlStock.map((inv) => (
+                      <SelectItem key={inv.id} value={inv.id}>
+                        {inv.smartcard_number} - {inv.stock_type} ({inv.assigned_to_type}: {inv.assigned_to_id})
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
 
               {/* 3b. Select Seller (who sold) */}
               <div>
@@ -996,12 +1081,20 @@ export default function RecordSalePage() {
                   className="glass-input"
                 />
               </div>
-            </div>
+            </>
+          )}
+        </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleSubmit} disabled={saving || !formData.inventory_id}>
+              <Button
+                onClick={handleSubmit}
+                disabled={saving || (attachDsrMode
+                  ? !(formData.team_leader_id && formData.captain_id && formData.dsr_id)
+                  : !formData.inventory_id)
+                }
+              >
                 {saving ? 'Saving...' : editingSale ? 'Update' : 'Record Sale'}
               </Button>
             </DialogFooter>
