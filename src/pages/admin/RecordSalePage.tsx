@@ -339,10 +339,21 @@ export default function RecordSalePage() {
       return;
     }
 
-    const selectedStock = tlStock.find((s) => s.id === formData.inventory_id);
-    if (!selectedStock) {
-      toast({ title: 'Error', description: 'Stock not found', variant: 'destructive' });
-      return;
+    let selectedStock;
+    if (attachDsrMode && editingSale) {
+      // Use stock info from the existing sale
+      selectedStock = {
+        smartcard_number: editingSale.smartcard_number,
+        serial_number: editingSale.serial_number,
+        stock_type: editingSale.stock_type,
+        id: editingSale.inventory_id,
+      };
+    } else {
+      selectedStock = tlStock.find((s) => s.id === formData.inventory_id);
+      if (!selectedStock) {
+        toast({ title: 'Error', description: 'Stock not found', variant: 'destructive' });
+        return;
+      }
     }
 
     setSaving(true);
@@ -377,13 +388,24 @@ export default function RecordSalePage() {
         region_id: formData.region_id,
         zone_id: region?.zone_id || null,
         inventory_id: formData.inventory_id,
-        sold_by_type: sellerType,
-        sold_by_id: sellerId,
+        // sold_by_type and sold_by_id removed (do not exist in schema)
       };
 
       if (editingSale) {
+        // Ensure all required fields are present for update
+        if (!saleData.inventory_id) saleData.inventory_id = editingSale.inventory_id;
+        if (!saleData.region_id) saleData.region_id = editingSale.region_id;
+        if (!saleData.smartcard_number) saleData.smartcard_number = editingSale.smartcard_number;
+        if (!saleData.serial_number) saleData.serial_number = editingSale.serial_number;
+        if (!saleData.stock_type) saleData.stock_type = editingSale.stock_type;
         const { error } = await supabase.from('sales_records').update(saleData).eq('id', editingSale.id);
-        if (error) throw error;
+        if (error) {
+          // Log error details and saleData for debugging
+          console.error('Supabase update error:', error);
+          console.error('saleData sent:', saleData);
+          alert('Supabase update error: ' + (error.message || JSON.stringify(error)));
+          throw error;
+        }
         toast({ title: 'Success', description: 'Sale updated!' });
       } else {
         // Insert sale record

@@ -100,6 +100,8 @@ const isMissingAdminUserNameColumn = (error: unknown) => {
 };
 
 export default function SalesTeamPage() {
+    // Search state
+    const [searchQuery, setSearchQuery] = useState('');
   const { toast } = useToast();
   const { adminUser, isSuperAdmin, isRegionalAdmin, isTSM, assignedRegionIds } = useAuth();
   const navigate = useNavigate();
@@ -251,19 +253,33 @@ export default function SalesTeamPage() {
 
   useEffect(() => { setRegionFilter('all'); }, [zoneFilter]);
 
-  // Filtered lists based on zone/region selection
+  // Helper for case-insensitive search
+  const matchesSearch = (str: string | null | undefined) =>
+    searchQuery.trim() === '' || (str && str.toLowerCase().includes(searchQuery.trim().toLowerCase()));
+
+  // Filtered lists based on zone/region selection and search
   const filteredTeamLeaders = teamLeaders.filter(tl => {
-    if (regionFilter !== 'all') return tl.region_id === regionFilter;
-    if (zoneFilter !== 'all') {
+    if (regionFilter !== 'all') {
+      if (tl.region_id !== regionFilter) return false;
+    } else if (zoneFilter !== 'all') {
       const zoneRegionIds = regions.filter(r => r.zone_id === zoneFilter).map(r => r.id);
-      return tl.region_id && zoneRegionIds.includes(tl.region_id);
+      if (!tl.region_id || !zoneRegionIds.includes(tl.region_id)) return false;
     }
-    return true;
+    // Search by name or phone
+    return matchesSearch(tl.name) || matchesSearch(tl.phone);
   });
   const filteredTLIds = filteredTeamLeaders.map(tl => tl.id);
-  const filteredCaptains = captains.filter(c => c.team_leader_id && filteredTLIds.includes(c.team_leader_id));
+  const filteredCaptains = captains.filter(c => {
+    if (!c.team_leader_id || !filteredTLIds.includes(c.team_leader_id)) return false;
+    // Search by name or phone
+    return matchesSearch(c.name) || matchesSearch(c.phone);
+  });
   const filteredCaptainIds = filteredCaptains.map(c => c.id);
-  const filteredDsrs = dsrs.filter(d => d.captain_id && filteredCaptainIds.includes(d.captain_id));
+  const filteredDsrs = dsrs.filter(d => {
+    if (!d.captain_id || !filteredCaptainIds.includes(d.captain_id)) return false;
+    // Search by name, phone, or dsr_number
+    return matchesSearch(d.name) || matchesSearch(d.phone) || matchesSearch(d.dsr_number);
+  });
   const visibleRegionIds = regionFilter !== 'all'
     ? [regionFilter]
     : zoneFilter !== 'all'
@@ -562,6 +578,17 @@ setDsrForm({ name: '', phone: '', captain_id: '', dsr_number: '', has_fss_accoun
           </div>
           {isTSM && <Badge variant="outline">Territory Manager Scope</Badge>}
         </div>
+
+        {/* Search Bar */}
+        <GlassCard className="p-4 flex flex-col md:flex-row gap-2 md:gap-4 items-center">
+          <Input
+            className="glass-input w-full md:w-96"
+            placeholder="Search by name, phone, or DSR number..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            autoFocus={false}
+          />
+        </GlassCard>
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
