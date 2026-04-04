@@ -1117,69 +1117,74 @@ setDsrForm({ name: '', phone: '', captain_id: '', dsr_number: '', has_fss_accoun
                 <table className="min-w-full text-sm border border-border/30 rounded-xl">
                   <thead>
                     <tr className="bg-muted/30">
-                      <th className="px-3 py-2 text-left">Name</th>
+                      <th className="px-3 py-2 text-left">DSR Name</th>
                       <th className="px-3 py-2 text-left">DSR Number</th>
                       <th className="px-3 py-2 text-left">Phone</th>
                       <th className="px-3 py-2 text-left">Captain</th>
-                      <th className="px-3 py-2 text-left">Location</th>
+                      <th className="px-3 py-2 text-left">TL Name</th>
                       <th className="px-3 py-2 text-left">FSS Account</th>
-                      <th className="px-3 py-2 text-left">Actions</th>
+                      <th className="px-3 py-2 text-left">Region</th>
+                      <th className="px-3 py-2 text-left">District</th>
+                      <th className="px-3 py-2 text-left">Ward</th>
+                      <th className="px-3 py-2 text-left">Village</th>
+                      <th className="px-3 py-2 text-left">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredDsrs.map((dsr) => (
-                      <tr key={dsr.id} className="border-t border-border/20 hover:bg-muted/10">
-                        <td className="px-3 py-2 font-medium">{dsr.name}</td>
-                        <td className="px-3 py-2">{dsr.dsr_number || <span className="text-muted-foreground">—</span>}</td>
-                        <td className="px-3 py-2">{dsr.phone || <span className="text-muted-foreground">—</span>}</td>
-                        <td className="px-3 py-2">{captains.find((c) => c.id === dsr.captain_id)?.name || <span className="text-muted-foreground">—</span>}</td>
-                        <td className="px-3 py-2">
-                          {[dsr.district, dsr.ward, dsr.street_village].filter(Boolean).join(', ') || <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="px-3 py-2">
-                          {dsr.has_fss_account ? (
-                            <span className="text-green-600 font-semibold">{dsr.fss_username || 'Yes'}</span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="flex gap-1">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => {
-                                setEditingDSR(dsr);
-                                setDsrForm({
-                                  name: dsr.name,
-                                  phone: dsr.phone || '',
-                                  captain_id: dsr.captain_id || '',
-                                  dsr_number: dsr.dsr_number || '',
-                                  has_fss_account: dsr.has_fss_account || false,
-                                  fss_username: dsr.fss_username || '',
-                                  district: dsr.district || '',
-                                  ward: dsr.ward || '',
-                                  street_village: dsr.street_village || '',
-                                });
-                                setDsrDialogOpen(true);
-                              }}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => {
-                                setDeleteTarget({ type: 'DSR', id: dsr.id, name: dsr.name });
-                                setDeleteDialogOpen(true);
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredDsrs.map((dsr) => {
+                      const captain = captains.find((c) => c.id === dsr.captain_id);
+                      const tl = captain ? teamLeaders.find((t) => t.id === captain.team_leader_id) : null;
+                      const region = tl ? regions.find((r) => r.id === tl.region_id) : null;
+                      return (
+                        <tr key={dsr.id} className="border-t border-border/20 hover:bg-muted/10">
+                          <td className="px-3 py-2 font-medium">{dsr.name}</td>
+                          <td className="px-3 py-2">{dsr.dsr_number || <span className="text-muted-foreground">—</span>}</td>
+                          <td className="px-3 py-2">{dsr.phone || <span className="text-muted-foreground">—</span>}</td>
+                          <td className="px-3 py-2">{captain?.name || <span className="text-muted-foreground">—</span>}</td>
+                          <td className="px-3 py-2">{tl?.name || <span className="text-muted-foreground">—</span>}</td>
+                          <td className="px-3 py-2">{dsr.has_fss_account ? (<span className="text-green-600 font-semibold">{dsr.fss_username || 'Yes'}</span>) : (<span className="text-muted-foreground">—</span>)}</td>
+                          <td className="px-3 py-2">{region?.name || <span className="text-muted-foreground">—</span>}</td>
+                          <td className="px-3 py-2">{dsr.district || <span className="text-muted-foreground">—</span>}</td>
+                          <td className="px-3 py-2">{dsr.ward || <span className="text-muted-foreground">—</span>}</td>
+                          <td className="px-3 py-2">{dsr.street_village || <span className="text-muted-foreground">—</span>}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => {
+                                  setEditingDSR(dsr);
+                                  setDsrForm({
+                                    name: dsr.name,
+                                    phone: dsr.phone || '',
+                                    captain_id: dsr.captain_id || '',
+                                    dsr_number: dsr.dsr_number || '',
+                                    has_fss_account: dsr.has_fss_account || false,
+                                    fss_username: dsr.fss_username || '',
+                                    district: dsr.district || '',
+                                    ward: dsr.ward || '',
+                                    street_village: dsr.street_village || '',
+                                  });
+                                  setDsrDialogOpen(true);
+                                }}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => {
+                                  setDeleteTarget({ type: 'DSR', id: dsr.id, name: dsr.name });
+                                  setDeleteDialogOpen(true);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
