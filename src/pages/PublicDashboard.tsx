@@ -163,16 +163,14 @@ export default function PublicDashboard() {
       if (regionFilter !== 'all') {
         tlQuery = tlQuery.eq('region_id', regionFilter);
       } else if (zoneFilter !== 'all') {
+        // Only use allRegions at mount, not as a dependency
         const zoneRegionIds = allRegions.filter(r => r.zone_id === zoneFilter).map(r => r.id);
         if (zoneRegionIds.length > 0) tlQuery = tlQuery.in('region_id', zoneRegionIds);
         else return [];
       }
       const { data: teamLeaders } = await tlQuery;
-
       if (!teamLeaders || teamLeaders.length === 0) return [];
-
       const tlIds = teamLeaders.map(tl => tl.id);
-
       // Batch: fetch all inventory for these TLs in 2 queries instead of 3 per TL
       const [{ data: assignedItems }, { data: soldItems }] = await Promise.all([
         supabase.from('inventory').select('assigned_to_id').eq('assigned_to_type', 'team_leader').in('assigned_to_id', tlIds).eq('status', 'assigned'),
@@ -244,7 +242,7 @@ export default function PublicDashboard() {
     } catch (error) {
       console.error('Error fetching recent sales:', error);
     }
-  }, [regionFilter, salesDateRange.endDate, salesDateRange.startDate, zoneFilter]);
+  }, [regionFilter, salesDateRange.startDate, salesDateRange.endDate, zoneFilter]);
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -370,7 +368,7 @@ export default function PublicDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [allRegions, fetchRecentSales, fetchTLStockData, regionFilter, salesDateRange, zoneFilter]);
+  }, [regionFilter, salesDateRange.startDate, salesDateRange.endDate, zoneFilter]);
 
   useEffect(() => {
     fetchDashboardData();
