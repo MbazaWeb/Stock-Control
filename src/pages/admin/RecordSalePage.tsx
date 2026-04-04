@@ -210,38 +210,42 @@ export default function RecordSalePage() {
     setSalesDateTo(nextRange.endDate);
   };
 
-  // Fetch TL's assigned stock when TL changes
+  // Fetch all stock assigned to TL, their Captains, and DSRs when TL changes
   useEffect(() => {
     if (!formData.team_leader_id) {
       setTlStock([]);
       return;
     }
 
-    const fetchTLStock = async () => {
-      let assignedToType = 'team_leader';
-      let assignedToId = formData.team_leader_id;
+    const fetchAllStock = async () => {
+      // Get all captains under this TL
+      const tlCaptains = captains.filter(c => c.team_leader_id === formData.team_leader_id).map(c => c.id);
+      // Get all dsrs under these captains
+      const tlDsrs = dsrs.filter(d => tlCaptains.includes(d.captain_id || '')).map(d => d.id);
 
-      if (formData.dsr_id) {
-        assignedToType = 'dsr';
-        assignedToId = formData.dsr_id;
-      } else if (formData.captain_id) {
-        assignedToType = 'captain';
-        assignedToId = formData.captain_id;
+      // Build all assigned_to_type/id pairs
+      const assignments = [
+        { type: 'team_leader', id: formData.team_leader_id },
+        ...tlCaptains.map(id => ({ type: 'captain', id })),
+        ...tlDsrs.map(id => ({ type: 'dsr', id })),
+      ];
+
+      // Fetch all stock assigned to any of these
+      let allStock = [];
+      for (const a of assignments) {
+        const { data } = await supabase
+          .from('inventory')
+          .select('id, smartcard_number, serial_number, stock_type, assigned_to_type, assigned_to_id')
+          .eq('assigned_to_type', a.type)
+          .eq('assigned_to_id', a.id)
+          .eq('status', 'assigned');
+        if (data) allStock = allStock.concat(data);
       }
-
-      const { data } = await supabase
-        .from('inventory')
-        .select('id, smartcard_number, serial_number, stock_type')
-        .eq('assigned_to_type', assignedToType)
-        .eq('assigned_to_id', assignedToId)
-        .eq('status', 'assigned')
-        .order('smartcard_number');
-
-      setTlStock(data || []);
+      setTlStock(allStock);
     };
 
-    fetchTLStock();
-  }, [formData.team_leader_id, formData.captain_id, formData.dsr_id]);
+    fetchAllStock();
+  }, [formData.team_leader_id, captains, dsrs]);
 
   // Filter TLs by selected region
   const filteredTLs = formData.region_id
@@ -259,6 +263,8 @@ export default function RecordSalePage() {
     setFormData({
       region_id: '',
       team_leader_id: '',
+      seller_type: '', // new: TL, Captain, or DSR
+      seller_id: '',   // new: id of seller
       captain_id: '',
       dsr_id: '',
       inventory_id: '',
@@ -325,6 +331,20 @@ export default function RecordSalePage() {
       // Get zone_id from region
       const region = regions.find((r) => r.id === formData.region_id);
 
+      // Determine seller type and id from form
+      let sellerType = formData.seller_type;
+      let sellerId = formData.seller_id;
+      // Fallback: if not set, use DSR, Captain, or TL from form
+      if (!sellerType || !sellerId) {
+        if (formData.dsr_id) {
+          sellerType = 'dsr'; sellerId = formData.dsr_id;
+        } else if (formData.captain_id) {
+          sellerType = 'captain'; sellerId = formData.captain_id;
+        } else {
+          sellerType = 'team_leader'; sellerId = formData.team_leader_id;
+        }
+      }
+
       const saleData = {
         smartcard_number: selectedStock.smartcard_number,
         serial_number: selectedStock.serial_number,
@@ -338,6 +358,8 @@ export default function RecordSalePage() {
         region_id: formData.region_id,
         zone_id: region?.zone_id || null,
         inventory_id: formData.inventory_id,
+        sold_by_type: sellerType,
+        sold_by_id: sellerId,
       };
 
       if (editingSale) {
@@ -832,7 +854,7 @@ export default function RecordSalePage() {
                 <p className="mt-1 text-xs text-muted-foreground">If DSR is missing, the sale will stay marked as incomplete / not scanned.</p>
               </div>
 
-              {/* 3. Select Stock */}
+              {/* 3. Select Stock (all in hand for TL, Captain, DSR) */}
               <div>
                 <Label>Stock Item * <span className="text-muted-foreground text-xs">({tlStock.length} available)</span></Label>
                 <Select
@@ -845,16 +867,47 @@ export default function RecordSalePage() {
                   </SelectTrigger>
                   <SelectContent>
                     {tlStock.length === 0 ? (
-                      <SelectItem value="__none__" disabled>No stock assigned to the selected seller level</SelectItem>
+                      <SelectItem value="__none__" disabled>No stock assigned to TL, Captain, or DSR</SelectItem>
                     ) : (
                       tlStock.map((inv) => (
                         <SelectItem key={inv.id} value={inv.id}>
-                          {inv.smartcard_number} - {inv.stock_type}
+                          {inv.smartcard_number} - {inv.stock_type} ({inv.assigned_to_type}: {inv.assigned_to_id})
                         </SelectItem>
                       ))
                     )}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* 3b. Select Seller (who sold) */}
+              <div>
+                <Label>Sold By *</Label>
+                <Select
+                  value={formData.seller_id || ''}
+                  onValueChange={(v) => {
+                    // Find type by id
+                    let type = '';
+                    if (v === formData.team_leader_id) type = 'team_leader';
+                    else if (captains.some(c => c.id === v)) type = 'captain';
+                    else if (dsrs.some(d => d.id === v)) type = 'dsr';
+                    setFormData({ ...formData, seller_id: v, seller_type: type });
+                  }}
+                  disabled={!formData.team_leader_id}
+                >
+                  <SelectTrigger className="glass-input">
+                    <SelectValue placeholder={formData.team_leader_id ? 'Select who sold' : 'Select TL first'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={formData.team_leader_id}>TL: {teamLeaders.find(t => t.id === formData.team_leader_id)?.name}</SelectItem>
+                    {filteredCaptains.map(c => (
+                      <SelectItem key={c.id} value={c.id}>Captain: {c.name}</SelectItem>
+                    ))}
+                    {filteredDsrs.map(d => (
+                      <SelectItem key={d.id} value={d.id}>DSR: {d.name}{d.dsr_number ? ` - ${d.dsr_number}` : ''}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">Select the actual seller (TL, Captain, or DSR).</p>
               </div>
 
               {/* 4. Package Status */}

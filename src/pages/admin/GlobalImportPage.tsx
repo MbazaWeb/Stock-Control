@@ -111,7 +111,7 @@ export default function GlobalImportPage() {
         const paymentStatus = String(row.getCell(5).value || defaultPaymentStatus).trim();
         const packageStatus = String(row.getCell(6).value || defaultPackageStatus).trim();
 
-        if (!smartcard && !serial) return; // Skip empty rows
+        if (!smartcard) return; // Skip rows without smartcard
 
         const importRow: ImportRow = {
           rowNumber,
@@ -133,13 +133,10 @@ export default function GlobalImportPage() {
           smartcardSet.add(smartcard);
         }
 
-        // Basic validation
+        // Basic validation: only smartcard is required
         if (!smartcard) {
           importRow.status = 'error';
           importRow.message = 'Missing smartcard number';
-        } else if (!serial) {
-          importRow.status = 'error';
-          importRow.message = 'Missing serial number';
         }
 
         rows.push(importRow);
