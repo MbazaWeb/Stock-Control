@@ -333,15 +333,15 @@ export default function RecordSalePage() {
   };
 
   const handleSubmit = async () => {
-    // Only require inventory_id if not in Attach DSR mode
-    if (!attachDsrMode && !formData.inventory_id) {
+    // Only require inventory_id for new sales (not editing)
+    if (!editingSale && !formData.inventory_id) {
       toast({ title: 'Error', description: 'Please select stock item', variant: 'destructive' });
       return;
     }
 
     let selectedStock;
-    if (attachDsrMode && editingSale) {
-      // Use stock info from the existing sale
+    if (editingSale) {
+      // Always use the original stock from the sale being edited
       selectedStock = {
         smartcard_number: editingSale.smartcard_number,
         serial_number: editingSale.serial_number,
@@ -1007,27 +1007,31 @@ export default function RecordSalePage() {
               </div>
 
               {/* 3. Select Stock (all in hand for TL, Captain, DSR) */}
-              <Label>Stock Item * <span className="text-muted-foreground text-xs">({tlStock.length} available)</span></Label>
-              <Select
-                value={formData.inventory_id}
-                onValueChange={(v) => setFormData({ ...formData, inventory_id: v })}
-                disabled={!formData.team_leader_id || !!editingSale}
-              >
-                <SelectTrigger className="glass-input">
-                  <SelectValue placeholder={formData.team_leader_id ? 'Select stock' : 'Select TL first'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {tlStock.length === 0 ? (
-                    <SelectItem value="__none__" disabled>No stock assigned to TL, Captain, or DSR</SelectItem>
-                  ) : (
-                    tlStock.map((inv) => (
-                      <SelectItem key={inv.id} value={inv.id}>
-                        {inv.smartcard_number} - {inv.stock_type} ({inv.assigned_to_type}: {inv.assigned_to_id})
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+              {!editingSale && (
+                <>
+                  <Label>Stock Item * <span className="text-muted-foreground text-xs">({tlStock.length} available)</span></Label>
+                  <Select
+                    value={formData.inventory_id}
+                    onValueChange={(v) => setFormData({ ...formData, inventory_id: v })}
+                    disabled={!formData.team_leader_id}
+                  >
+                    <SelectTrigger className="glass-input">
+                      <SelectValue placeholder={formData.team_leader_id ? 'Select stock' : 'Select TL first'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tlStock.length === 0 ? (
+                        <SelectItem value="__none__" disabled>No stock assigned to TL, Captain, or DSR</SelectItem>
+                      ) : (
+                        tlStock.map((inv) => (
+                          <SelectItem key={inv.id} value={inv.id}>
+                            {inv.smartcard_number} - {inv.stock_type} ({inv.assigned_to_type}: {inv.assigned_to_id})
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
 
               {/* 3b. Select Seller (who sold) */}
               <div>
