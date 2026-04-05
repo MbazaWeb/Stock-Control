@@ -72,8 +72,8 @@ export default function PublicSalesTargetPage() {
       // Fetch all sales
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
-        .select('*, team_leaders(region_id)')
-        .eq('status', 'Paid')
+        .select('*')
+        .eq('payment_status', 'Paid')
         .neq('date_recorded', null);
 
       if (salesError) throw salesError;
