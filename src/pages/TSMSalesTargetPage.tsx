@@ -120,8 +120,7 @@ export default function TSMSalesTargetPage() {
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('*')
-        .eq('payment_status', 'Paid')
-        .neq('date_recorded', null);
+        .eq('payment_status', 'Paid');
 
       if (salesError) throw salesError;
 
