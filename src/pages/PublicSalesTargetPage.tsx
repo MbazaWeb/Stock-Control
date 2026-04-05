@@ -52,7 +52,7 @@ export default function PublicSalesTargetPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch all TSM targets
+      // Fetch all TSM targets with regions
       const { data: targetsData, error: targetsError } = await supabase
         .from('tsm_targets')
         .select(`
@@ -67,16 +67,26 @@ export default function PublicSalesTargetPage() {
         .order('year', { ascending: false })
         .order('month', { ascending: false });
 
-      if (targetsError) throw targetsError;
+      if (targetsError) {
+        console.error('Error fetching tsm_targets:', targetsError);
+        throw targetsError;
+      }
 
-      // Fetch all sales
+      console.log('Fetched tsm_targets:', targetsData);
+
+      // Fetch all paid sales
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('*')
         .eq('payment_status', 'Paid')
         .neq('date_recorded', null);
 
-      if (salesError) throw salesError;
+      if (salesError) {
+        console.error('Error fetching sales_records:', salesError);
+        throw salesError;
+      }
+
+      console.log('Fetched sales_records:', salesData?.length, 'records');
 
       // Calculate performance
       const targetsWithPerformance: TargetWithPerformance[] = (targetsData || []).map((target) => {
@@ -132,9 +142,13 @@ export default function PublicSalesTargetPage() {
       setTargets(targetsWithPerformance);
     } catch (error) {
       console.error('Error fetching data:', error);
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+      }
       toast({
         title: 'Error',
-        description: 'Failed to load targets',
+        description: error instanceof Error ? error.message : 'Failed to load targets',
         variant: 'destructive',
       });
     } finally {
