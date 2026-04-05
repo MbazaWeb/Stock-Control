@@ -9,7 +9,8 @@ import {
   Menu,
   X,
   ShoppingCart,
-  Users
+  Users,
+  Target
 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,7 @@ const navItems = [
   { href: '/stock', label: 'Stock', icon: Package },
   { href: '/add-sale', label: 'Add Sale', icon: ShoppingCart },
   { href: '/dsrs', label: 'DSRs', icon: Users },
+  { href: '/public/sales-targets', label: 'Sales Targets', icon: Target },
 ];
 
 export default function PublicNav() {
