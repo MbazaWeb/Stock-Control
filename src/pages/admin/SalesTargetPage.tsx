@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Trash2, Edit2, TrendingUp, TrendingDown } from 'lucide-react';
 import AdminLayout from '@/components/layout/AdminLayout';
 import GlassCard from '@/components/ui/GlassCard';
+import styles from './SalesTargetPage.module.css';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -837,7 +838,7 @@ export default function SalesTargetPage() {
                 <span className="text-muted-foreground">Current Run: {endOfMonthPrediction.currentRun.toLocaleString()}</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#10b981' }} />
+                <div className={`${styles.indicatorDot} ${styles.indicatorDotGreen}`} />
                 <span className="text-muted-foreground">On Track: {endOfMonthPrediction.onTrackPrediction.toLocaleString()}</span>
               </div>
               <div className="flex items-center gap-2">
