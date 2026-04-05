@@ -44,6 +44,10 @@ const AdminAuditPage = lazy(() => import("./pages/admin/AdminAuditPage"));
 const ManagerRecordSalePage = lazy(() => import("./pages/admin/ManagerRecordSalePage"));
 const ManagerSaleRequestsPage = lazy(() => import("./pages/admin/ManagerSaleRequestsPage"));
 const SalesTargetPage = lazy(() => import("./pages/admin/SalesTargetPage"));
+const TLSalesTargetPage = lazy(() => import("./pages/TLSalesTargetPage"));
+const TSMSalesTargetPage = lazy(() => import("./pages/TSMSalesTargetPage"));
+const CaptainSalesTargetPage = lazy(() => import("./pages/CaptainSalesTargetPage"));
+const PublicSalesTargetPage = lazy(() => import("./pages/PublicSalesTargetPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -173,6 +177,10 @@ const App = () => (
             <Route path="/admin/sale-requests" element={<ManagerOnlyRoute><ManagerSaleRequestsPage /></ManagerOnlyRoute>} />
             <Route path="/admin/audits" element={<NonDsrRoute><AuditPageRoute /></NonDsrRoute>} />
             <Route path="/admin/sales-targets" element={<AdminUserRoute><SalesTargetPage /></AdminUserRoute>} />
+            <Route path="/admin/tl-sales-targets" element={<TeamLeaderOnlyRoute><TLSalesTargetPage /></TeamLeaderOnlyRoute>} />
+            <Route path="/admin/tsm-sales-targets" element={<TsmOnlyRoute><TSMSalesTargetPage /></TsmOnlyRoute>} />
+            <Route path="/admin/captain-sales-targets" element={<DsrOnlyRoute><CaptainSalesTargetPage /></DsrOnlyRoute>} />
+            <Route path="/public/sales-targets" element={<PublicSalesTargetPage />} />
             
             <Route path="*" element={<NotFound />} />
           </Routes>

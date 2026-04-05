@@ -19,6 +19,7 @@ import {
   X,
   ClipboardCheck,
   CreditCard,
+  Target,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/auth-context';
@@ -44,6 +45,7 @@ const adminMenuItems: MenuItem[] = [
   { href: '/admin/search', label: 'Admin Search', icon: Search },
   { href: '/admin/global-import', label: 'Global Import', icon: FileUp },
   { href: '/admin/sales-team', label: 'Sales Team', icon: Users },
+  { href: '/admin/sales-targets', label: 'Sales Targets', icon: Target },
   { href: '/admin/zones-regions', label: 'Zones & Regions', icon: MapPin },
   { href: '/admin/reports', label: 'Sales Reports', icon: BarChart3 },
   { href: '/admin/regional-admins', label: 'Users Page', icon: Shield },
@@ -55,6 +57,7 @@ const teamLeaderMenuItems: MenuItem[] = [
   { href: '/admin/tl-team', label: 'My Team', icon: Users },
   { href: '/admin/tl-stock', label: 'My Stock', icon: Package },
   { href: '/admin/record-sales', label: 'Record Sales', icon: BarChart3 },
+  { href: '/admin/tl-sales-targets', label: 'My Sales Targets', icon: Target },
   { href: '/admin/sale-requests', label: 'My Requests', icon: CreditCard },
   { href: '/admin/audits', label: 'Audit Report', icon: ClipboardCheck },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
@@ -64,12 +67,14 @@ const tsmMenuItems: MenuItem[] = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/admin/tsm-team', label: 'My Team', icon: Users },
   { href: '/admin/tsm-stock', label: 'View Stock', icon: Package },
+  { href: '/admin/tsm-sales-targets', label: 'Regional Targets', icon: Target },
   { href: '/admin/audits', label: 'Audit Report', icon: ClipboardCheck },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
 ];
 
 const dsrMenuItems: MenuItem[] = [
   { href: '/admin', label: 'My Sales', icon: ClipboardList },
+  { href: '/admin/captain-sales-targets', label: 'My Targets', icon: Target },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
 ];
 

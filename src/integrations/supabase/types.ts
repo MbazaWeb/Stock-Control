@@ -664,6 +664,160 @@ export type Database = {
         }
         Relationships: []
       }
+      sales_targets: {
+        Row: {
+          id: string
+          team_leader_id: string
+          year: number
+          month: number
+          target_amount: number
+          created_at: string
+          updated_at: string
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          team_leader_id: string
+          year: number
+          month: number
+          target_amount: number
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          team_leader_id?: string
+          year?: number
+          month?: number
+          target_amount?: number
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sales_targets_team_leader_id_fkey"
+            columns: ["team_leader_id"]
+            isOneToMany: false
+            referencedRelation: "team_leaders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sales_targets_created_by_fkey"
+            columns: ["created_by"]
+            isOneToMany: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      captain_targets: {
+        Row: {
+          id: string
+          captain_id: string
+          team_leader_id: string
+          year: number
+          month: number
+          target_amount: number
+          created_at: string
+          updated_at: string
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          captain_id: string
+          team_leader_id: string
+          year: number
+          month: number
+          target_amount: number
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          captain_id?: string
+          team_leader_id?: string
+          year?: number
+          month?: number
+          target_amount?: number
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "captain_targets_captain_id_fkey"
+            columns: ["captain_id"]
+            isOneToMany: false
+            referencedRelation: "captains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_targets_team_leader_id_fkey"
+            columns: ["team_leader_id"]
+            isOneToMany: false
+            referencedRelation: "team_leaders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_targets_created_by_fkey"
+            columns: ["created_by"]
+            isOneToMany: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      tsm_targets: {
+        Row: {
+          id: string
+          region_id: string
+          year: number
+          month: number
+          target_amount: number
+          created_at: string
+          updated_at: string
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          region_id: string
+          year: number
+          month: number
+          target_amount: number
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          region_id?: string
+          year?: number
+          month?: number
+          target_amount?: number
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tsm_targets_region_id_fkey"
+            columns: ["region_id"]
+            isOneToMany: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tsm_targets_created_by_fkey"
+            columns: ["created_by"]
+            isOneToMany: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never

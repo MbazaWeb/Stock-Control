@@ -57,39 +57,31 @@ ALTER TABLE public.sales_targets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.captain_targets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tsm_targets ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies for sales_targets (TL and Admins can manage)
+-- Drop existing policies if they exist (idempotent)
+DROP POLICY IF EXISTS "TLs can view their own targets" ON public.sales_targets;
+DROP POLICY IF EXISTS "Admins can manage sales targets" ON public.sales_targets;
+DROP POLICY IF EXISTS "Admins can manage captain targets" ON public.captain_targets;
+DROP POLICY IF EXISTS "Admins can manage tsm targets" ON public.tsm_targets;
+
+-- RLS Policies for sales_targets (Admins manage, TLs view own)
 CREATE POLICY "TLs can view their own targets" ON public.sales_targets
   FOR SELECT USING (
-    team_leader_id = auth.uid() OR
-    auth.jwt() ->> 'role' = 'authenticated' AND auth.jwt() ->> 'user_role' = 'admin'
+    team_leader_id = auth.uid()
   );
 
-CREATE POLICY "Admins can create/update TL targets" ON public.sales_targets
-  FOR ALL USING (auth.jwt() ->> 'user_role' = 'admin')
-  WITH CHECK (auth.jwt() ->> 'user_role' = 'admin');
+CREATE POLICY "Admins can manage sales targets" ON public.sales_targets
+  FOR ALL USING (public.is_admin_user(auth.uid()))
+  WITH CHECK (public.is_admin_user(auth.uid()));
 
--- RLS Policies for captain_targets (Captains and TLs can view, Admins can manage)
-CREATE POLICY "Captains can view their own targets" ON public.captain_targets
-  FOR SELECT USING (
-    captain_id = auth.uid() OR
-    team_leader_id = auth.uid() OR
-    auth.jwt() ->> 'user_role' = 'admin'
-  );
-
+-- RLS Policies for captain_targets (Admins manage)
 CREATE POLICY "Admins can manage captain targets" ON public.captain_targets
-  FOR ALL USING (auth.jwt() ->> 'user_role' = 'admin')
-  WITH CHECK (auth.jwt() ->> 'user_role' = 'admin');
+  FOR ALL USING (public.is_admin_user(auth.uid()))
+  WITH CHECK (public.is_admin_user(auth.uid()));
 
--- RLS Policies for tsm_targets (TSMs and Admins can view)
-CREATE POLICY "TSMs can view region targets" ON public.tsm_targets
-  FOR SELECT USING (
-    auth.jwt() ->> 'user_role' = 'admin' OR
-    auth.jwt() ->> 'user_role' = 'tsm'
-  );
-
-CREATE POLICY "Admins can manage TSM targets" ON public.tsm_targets
-  FOR ALL USING (auth.jwt() ->> 'user_role' = 'admin')
-  WITH CHECK (auth.jwt() ->> 'user_role' = 'admin');
+-- RLS Policies for tsm_targets (Admins manage)
+CREATE POLICY "Admins can manage tsm targets" ON public.tsm_targets
+  FOR ALL USING (public.is_admin_user(auth.uid()))
+  WITH CHECK (public.is_admin_user(auth.uid()));
 
 -- Create function to calculate monthly to date target based on days elapsed
 CREATE OR REPLACE FUNCTION public.calculate_monthly_to_date_target(
