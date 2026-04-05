@@ -68,7 +68,7 @@ export default function PublicSalesTargetPage() {
   const [teamLeaderTargets, setTeamLeaderTargets] = useState<TargetWithPerformance[]>([]);
   const [allTargets, setAllTargets] = useState<TargetWithPerformance[]>([]);
 
-  const currentMonth = getCurrentMonthYear();
+  const currentMonth = useMemo(() => getCurrentMonthYear(), []);
 
   const daysInMonth = useMemo(() => {
     const now = new Date();
@@ -153,8 +153,7 @@ export default function PublicSalesTargetPage() {
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('*')
-        .eq('payment_status', 'Paid')
-        .neq('date_recorded', null);
+        .eq('payment_status', 'Paid');
 
       if (salesError) {
         console.error('Sales Records Error:', salesError);
@@ -289,7 +288,7 @@ export default function PublicSalesTargetPage() {
     } finally {
       setLoading(false);
     }
-  }, [daysInMonth, daysElapsed, currentMonth, toast]);
+  }, [currentMonth, daysInMonth, daysElapsed, toast]);
 
   useEffect(() => {
     fetchData();
