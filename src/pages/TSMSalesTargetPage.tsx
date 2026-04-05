@@ -70,20 +70,33 @@ export default function TSMSalesTargetPage() {
         throw new Error('User not authenticated');
       }
 
-      // Get team leader associated with TSM user to find their region
-      const { data: tlData, error: tlError } = await supabase
-        .from('team_leaders')
-        .select('region_id')
+      // Get admin user record for this TSM
+      const { data: adminData, error: adminError } = await supabase
+        .from('admin_users')
+        .select('id')
         .eq('user_id', user.id)
         .single();
 
-      if (tlError) throw tlError;
+      if (adminError) throw adminError;
 
-      if (!tlData || !tlData.region_id) {
-        throw new Error('Region not found for this TSM');
+      if (!adminData) {
+        throw new Error('Admin user record not found');
       }
 
-      const regionId = tlData.region_id;
+      // Get region assignment for this admin user
+      const { data: regionData, error: regionError } = await supabase
+        .from('admin_region_assignments')
+        .select('region_id')
+        .eq('admin_id', adminData.id)
+        .single();
+
+      if (regionError) throw regionError;
+
+      if (!regionData || !regionData.region_id) {
+        throw new Error('Region not assigned to this TSM');
+      }
+
+      const regionId = regionData.region_id;
 
       // Fetch TSM targets
       const { data: targetsData, error: targetsError } = await supabase

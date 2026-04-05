@@ -69,20 +69,41 @@ export default function CaptainSalesTargetPage() {
         throw new Error('User not authenticated');
       }
 
-      // Get captain ID associated with user
-      const { data: captainData, error: captainError } = await supabase
-        .from('captains')
-        .select('id')
+      let captainId: string;
+
+      // Get admin user record to find captain ID
+      const { data: adminData, error: adminError } = await supabase
+        .from('admin_users')
+        .select('captain_id, dsr_id')
         .eq('user_id', user.id)
         .single();
 
-      if (captainError) throw captainError;
+      if (adminError) throw adminError;
 
-      if (!captainData) {
-        throw new Error('Captain not found for this user');
+      if (!adminData) {
+        throw new Error('Admin user record not found');
       }
 
-      const captainId = captainData.id;
+      // If user is a captain, use their captain_id
+      if (adminData.captain_id) {
+        captainId = adminData.captain_id;
+      } 
+      // If user is a DSR, get their captain via their dsr_id  
+      else if (adminData.dsr_id) {
+        const { data: dsrData, error: dsrError } = await supabase
+          .from('dsrs')
+          .select('captain_id')
+          .eq('id', adminData.dsr_id)
+          .single();
+
+        if (dsrError || !dsrData || !dsrData.captain_id) {
+          throw new Error('Captain not found for this DSR');
+        }
+
+        captainId = dsrData.captain_id;
+      } else {
+        throw new Error('Captain or DSR record not found for this user');
+      }
 
       // Fetch captain targets
       const { data: targetsData, error: targetsError } = await supabase

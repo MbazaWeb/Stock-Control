@@ -115,6 +115,11 @@ function DsrOnlyRoute({ children }: { children: JSX.Element }) {
   return isDSR ? children : <Navigate to="/admin" replace />;
 }
 
+function CaptainOrDsrRoute({ children }: { children: JSX.Element }) {
+  const { isCaptain, isDSR } = useAuth();
+  return isCaptain || isDSR ? children : <Navigate to="/admin" replace />;
+}
+
 function NonDsrRoute({ children }: { children: JSX.Element }) {
   const { isDSR } = useAuth();
   return isDSR ? <Navigate to="/admin" replace /> : children;
@@ -179,7 +184,7 @@ const App = () => (
             <Route path="/admin/sales-targets" element={<AdminUserRoute><SalesTargetPage /></AdminUserRoute>} />
             <Route path="/admin/tl-sales-targets" element={<TeamLeaderOnlyRoute><TLSalesTargetPage /></TeamLeaderOnlyRoute>} />
             <Route path="/admin/tsm-sales-targets" element={<TsmOnlyRoute><TSMSalesTargetPage /></TsmOnlyRoute>} />
-            <Route path="/admin/captain-sales-targets" element={<DsrOnlyRoute><CaptainSalesTargetPage /></DsrOnlyRoute>} />
+            <Route path="/admin/captain-sales-targets" element={<CaptainOrDsrRoute><CaptainSalesTargetPage /></CaptainOrDsrRoute>} />
             <Route path="/public/sales-targets" element={<PublicSalesTargetPage />} />
             
             <Route path="*" element={<NotFound />} />

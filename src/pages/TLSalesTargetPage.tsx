@@ -70,20 +70,20 @@ export default function TLSalesTargetPage() {
         throw new Error('User not authenticated');
       }
 
-      // Get current user's team leader account
-      const { data: tlData, error: tlError } = await supabase
-        .from('team_leaders')
-        .select('id')
+      // Get admin user record to find team leader ID
+      const { data: adminData, error: adminError } = await supabase
+        .from('admin_users')
+        .select('team_leader_id')
         .eq('user_id', user.id)
         .single();
 
-      if (tlError) throw tlError;
+      if (adminError) throw adminError;
 
-      if (!tlData) {
-        throw new Error('Team Leader not found for this user');
+      if (!adminData || !adminData.team_leader_id) {
+        throw new Error('Team Leader record not found for this user');
       }
 
-      const tlId = tlData.id;
+      const tlId = adminData.team_leader_id;
 
       // Fetch sales targets for this team leader
       const { data: targetsData, error: targetsError } = await supabase
