@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
+import PublicLayout from '@/components/layout/PublicLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -171,14 +172,13 @@ export default function PublicSalesTargetPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-        <div className="space-y-6">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-display font-bold text-white">Regional Sales Performance</h1>
-            <p className="text-slate-400 mt-2">Public view of regional sales targets and performance</p>
-          </div>
+    <PublicLayout>
+      <div className="space-y-6">
+        {/* Header */}
+        <div>
+          <h1 className="text-3xl font-display font-bold">Regional Sales Performance</h1>
+          <p className="text-muted-foreground mt-1">Public view of regional sales targets and performance</p>
+        </div>
 
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
@@ -301,7 +301,26 @@ export default function PublicSalesTargetPage() {
           {/* Legend */}
           <GlassCard>
             <div className="space-y-4">
-              <div className="border-b border-border/50 pb-4 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <p className="font-semibold text-muted-foreground mb-2">Performance %</p>
+                  <p className="text-xs">Monthly achievement: (Actual Sales / Target Amount) × 100</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-muted-foreground mb-2">Daily Target</p>
+                  <p className="text-xs">Prorated daily goal: Monthly Target ÷ Days in Month</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-muted-foreground mb-2">MTD Target</p>
+                  <p className="text-xs">Month-to-date goal: Daily Target × Days Elapsed</p>
+                </div>
+                <div>
+                  <p className="font-semibold text-muted-foreground mb-2">MTD Performance %</p>
+                  <p className="text-xs">MTD achievement: (MTD Sales / MTD Target) × 100</p>
+                </div>
+              </div>
+
+              <div className="border-t border-border/50 pt-4 mt-4">
                 <p className="font-semibold text-muted-foreground mb-3">Performance Badge Colors</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                   <div className="flex items-center gap-2">
@@ -322,29 +341,9 @@ export default function PublicSalesTargetPage() {
                   </div>
                 </div>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <p className="font-semibold text-muted-foreground mb-2">Performance %</p>
-                  <p className="text-xs">Monthly achievement: (Actual Sales / Target Amount) × 100</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-muted-foreground mb-2">Daily Target</p>
-                  <p className="text-xs">Prorated daily goal: Monthly Target ÷ Days in Month</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-muted-foreground mb-2">MTD Target</p>
-                  <p className="text-xs">Month-to-date goal: Daily Target × Days Elapsed</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-muted-foreground mb-2">MTD Performance %</p>
-                  <p className="text-xs">MTD achievement: (MTD Sales / MTD Target) × 100</p>
-                </div>
-              </div>
             </div>
           </GlassCard>
         </div>
-      </div>
-    </div>
-  );
-}
+      </PublicLayout>
+    );
+  }
