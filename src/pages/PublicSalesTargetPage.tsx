@@ -111,16 +111,24 @@ export default function PublicSalesTargetPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      console.log('Starting fetch data...');
+      
       // Fetch regional targets with region info
+      console.log('Fetching tsm_targets...');
       const { data: tsmTargetsData, error: tsmError } = await supabase
         .from('tsm_targets')
         .select('id, region_id, year, month, target_amount, regions(name)')
         .order('year', { ascending: false })
         .order('month', { ascending: false });
 
-      if (tsmError) throw tsmError;
+      if (tsmError) {
+        console.error('TSM Targets Error:', tsmError);
+        throw new Error(`Failed to fetch tsm_targets: ${tsmError.message}`);
+      }
+      console.log('TSM Targets fetched:', tsmTargetsData?.length || 0, 'records');
 
       // Fetch team leader targets with team leader info
+      console.log('Fetching sales_targets (team leader targets)...');
       const { data: tlTargetsData, error: tlError } = await supabase
         .from('sales_targets')
         .select(`
@@ -134,16 +142,27 @@ export default function PublicSalesTargetPage() {
         .order('year', { ascending: false })
         .order('month', { ascending: false });
 
-      if (tlError) throw tlError;
+      if (tlError) {
+        console.error('Sales Targets Error:', tlError);
+        throw new Error(`Failed to fetch sales_targets: ${tlError.message}`);
+      }
+      console.log('Sales Targets fetched:', tlTargetsData?.length || 0, 'records');
 
       // Fetch all paid sales
+      console.log('Fetching sales_records...');
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('*')
         .eq('payment_status', 'Paid')
         .neq('date_recorded', null);
 
-      if (salesError) throw salesError;
+      if (salesError) {
+        console.error('Sales Records Error:', salesError);
+        throw new Error(`Failed to fetch sales_records: ${salesError.message}`);
+      }
+      console.log('Sales Records fetched:', salesData?.length || 0, 'records');
+
+      console.log('All data fetched successfully. Processing...');
 
       // Calculate regional targets with performance
       const regionalWithPerf: TargetWithPerformance[] = (tsmTargetsData || []).map((target: { id: string; region_id: string; year: number; month: number; target_amount: number; regions?: { name: string } }) => {
@@ -252,11 +271,19 @@ export default function PublicSalesTargetPage() {
       setRegionalTargets(regionalWithPerf);
       setTeamLeaderTargets(tlWithPerf);
       setAllTargets([...regionalWithPerf, ...tlWithPerf]);
+      console.log('Processing complete! Regional targets:', regionalWithPerf.length, 'Team leader targets:', tlWithPerf.length);
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('=== COMPLETE ERROR DETAILS ===');
+      console.error('Error object:', error);
+      console.error('Error type:', error?.constructor?.name);
+      if (error instanceof Error) {
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
+      }
+      console.error('============================');
       toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to load targets',
+        title: 'Error Loading Targets',
+        description: error instanceof Error ? error.message : 'Failed to load targets. Check browser console for details.',
         variant: 'destructive',
       });
     } finally {
