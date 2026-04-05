@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/auth-context';
 import { supabase } from '@/integrations/supabase/client';
 import { getCurrentMonthYear, getMonthName } from '@/lib/targetCalculations';
+import { Tables } from '@/integrations/supabase/types';
 import {
   LineChart,
   Line,
@@ -65,16 +66,24 @@ export default function TSMSalesTargetPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Get region managed by TSM
-      const { data: tsmData, error: tsmError } = await supabase
-        .from('admin_users')
+      if (!user?.id) {
+        throw new Error('User not authenticated');
+      }
+
+      // Get team leader associated with TSM user to find their region
+      const { data: tlData, error: tlError } = await supabase
+        .from('team_leaders')
         .select('region_id')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .single();
 
-      if (tsmError) throw tsmError;
+      if (tlError) throw tlError;
 
-      const regionId = tsmData.region_id;
+      if (!tlData || !tlData.region_id) {
+        throw new Error('Region not found for this TSM');
+      }
+
+      const regionId = tlData.region_id;
 
       // Fetch TSM targets
       const { data: targetsData, error: targetsError } = await supabase
@@ -104,12 +113,12 @@ export default function TSMSalesTargetPage() {
       if (salesError) throw salesError;
 
       // Calculate performance
-      const targetsWithPerformance: TargetWithPerformance[] = (targetsData || []).map((target: any) => {
+      const targetsWithPerformance: TargetWithPerformance[] = (targetsData || []).map((target) => {
         const actual_sales = (salesData || []).filter(
-          (sale: any) =>
-            sale.team_leaders?.region_id === target.region_id &&
-            new Date(sale.date_recorded).getFullYear() === target.year &&
-            new Date(sale.date_recorded).getMonth() === target.month
+          (sale: Tables<'sales_records'>) =>
+            sale.team_leader_id &&
+            new Date(sale.sale_date).getFullYear() === target.year &&
+            new Date(sale.sale_date).getMonth() === target.month
         ).length;
 
         const performance_percent = target.target_amount > 0
@@ -123,10 +132,10 @@ export default function TSMSalesTargetPage() {
         const isCurrentMonth = target.year === currentMonth.year && target.month === currentMonth.month;
         const today = new Date();
         const mtd_sales = isCurrentMonth
-          ? (salesData || []).filter((sale: any) => {
-              const saleDate = new Date(sale.date_recorded);
+          ? (salesData || []).filter((sale: Tables<'sales_records'>) => {
+              const saleDate = new Date(sale.sale_date);
               return (
-                sale.team_leaders?.region_id === target.region_id &&
+                sale.team_leader_id &&
                 saleDate.getFullYear() === target.year &&
                 saleDate.getMonth() === target.month &&
                 saleDate <= today

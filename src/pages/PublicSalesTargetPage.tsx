@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getCurrentMonthYear, getMonthName } from '@/lib/targetCalculations';
+import { Tables } from '@/integrations/supabase/types';
 
 interface PublicTarget {
   id: string;
@@ -77,12 +78,12 @@ export default function PublicSalesTargetPage() {
       if (salesError) throw salesError;
 
       // Calculate performance
-      const targetsWithPerformance: TargetWithPerformance[] = (targetsData || []).map((target: any) => {
+      const targetsWithPerformance: TargetWithPerformance[] = (targetsData || []).map((target) => {
         const actual_sales = (salesData || []).filter(
-          (sale: any) =>
-            sale.team_leaders?.region_id === target.region_id &&
-            new Date(sale.date_recorded).getFullYear() === target.year &&
-            new Date(sale.date_recorded).getMonth() === target.month
+          (sale: Tables<'sales_records'>) =>
+            sale.region_id === target.region_id &&
+            new Date(sale.sale_date).getFullYear() === target.year &&
+            new Date(sale.sale_date).getMonth() === target.month
         ).length;
 
         const performance_percent = target.target_amount > 0
@@ -96,10 +97,10 @@ export default function PublicSalesTargetPage() {
         const isCurrentMonth = target.year === currentMonth.year && target.month === currentMonth.month;
         const today = new Date();
         const mtd_sales = isCurrentMonth
-          ? (salesData || []).filter((sale: any) => {
-              const saleDate = new Date(sale.date_recorded);
+          ? (salesData || []).filter((sale: Tables<'sales_records'>) => {
+              const saleDate = new Date(sale.sale_date);
               return (
-                sale.team_leaders?.region_id === target.region_id &&
+                sale.region_id === target.region_id &&
                 saleDate.getFullYear() === target.year &&
                 saleDate.getMonth() === target.month &&
                 saleDate <= today

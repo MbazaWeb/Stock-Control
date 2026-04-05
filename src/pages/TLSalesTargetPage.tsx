@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/auth-context';
 import { supabase } from '@/integrations/supabase/client';
 import { getCurrentMonthYear, getMonthName } from '@/lib/targetCalculations';
+import { Tables } from '@/integrations/supabase/types';
 import {
   LineChart,
   Line,
@@ -65,14 +66,22 @@ export default function TLSalesTargetPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      if (!user?.id) {
+        throw new Error('User not authenticated');
+      }
+
       // Get current user's team leader account
       const { data: tlData, error: tlError } = await supabase
         .from('team_leaders')
         .select('id')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .single();
 
       if (tlError) throw tlError;
+
+      if (!tlData) {
+        throw new Error('Team Leader not found for this user');
+      }
 
       const tlId = tlData.id;
 
@@ -99,9 +108,9 @@ export default function TLSalesTargetPage() {
       const targetsWithPerformance: TargetWithPerformance[] = (targetsData || []).map((target) => {
         // Count actual sales
         const actual_sales = (salesData || []).filter(
-          (sale: any) => 
-            new Date(sale.date_recorded).getFullYear() === target.year &&
-            new Date(sale.date_recorded).getMonth() === target.month
+          (sale: Tables<'sales_records'>) => 
+            new Date(sale.sale_date).getFullYear() === target.year &&
+            new Date(sale.sale_date).getMonth() === target.month
         ).length;
 
         const performance_percent = target.target_amount > 0
@@ -118,8 +127,8 @@ export default function TLSalesTargetPage() {
         const isCurrentMonth = target.year === currentMonth.year && target.month === currentMonth.month;
         const today = new Date();
         const mtd_sales = isCurrentMonth
-          ? (salesData || []).filter((sale: any) => {
-              const saleDate = new Date(sale.date_recorded);
+          ? (salesData || []).filter((sale: Tables<'sales_records'>) => {
+              const saleDate = new Date(sale.sale_date);
               return (
                 saleDate.getFullYear() === target.year &&
                 saleDate.getMonth() === target.month &&
