@@ -71,6 +71,27 @@ export default function SalesTargetPage() {
   const [filterTeamLeader, setFilterTeamLeader] = useState('all');
   const [filterPerformance, setFilterPerformance] = useState<'all' | 'best' | 'lower'>('all');
 
+  // Handle captain target edit
+  const updateCaptainTarget = (captainId: string, newTarget: number) => {
+    setCaptainDistribution(prev =>
+      prev.map(captain =>
+        captain.id === captainId
+          ? { ...captain, target: Math.max(0, newTarget) }
+          : captain
+      )
+    );
+  };
+
+  // Distribute target equally among captains
+  const distributeEqually = () => {
+    if (!formData.target_amount || captainDistribution.length === 0) return;
+    const targetAmount = parseInt(formData.target_amount);
+    const perCaptainTarget = Math.floor(targetAmount / captainDistribution.length);
+    setCaptainDistribution(prev =>
+      prev.map(captain => ({ ...captain, target: perCaptainTarget }))
+    );
+  };
+
   const currentMonth = getCurrentMonthYear();
 
   // Calculate days elapsed in current month
@@ -372,8 +393,8 @@ export default function SalesTargetPage() {
         });
       }
 
-      // Distribute target to captains
-      await distributeToCaptains(formData.team_leader_id, formData.year, formData.month, parseInt(formData.target_amount));
+      // Distribute target to captains with custom allocations
+      await distributeToCaptains(formData.team_leader_id, formData.year, formData.month, captainDistribution);
 
       handleCloseDialog();
       fetchData();
@@ -387,28 +408,18 @@ export default function SalesTargetPage() {
     }
   };
 
-  // Distribute TL target to captains equally
-  const distributeToCaptains = async (tlId: string, year: number, month: number, targetAmount: number) => {
+  // Distribute TL target to captains with custom allocations
+  const distributeToCaptains = async (tlId: string, year: number, month: number, customDistribution: Array<{ id: string; name: string; target: number }>) => {
     try {
-      // Get captains under this team leader
-      const { data: captains, error: captainError } = await supabase
-        .from('captains')
-        .select('id')
-        .eq('team_leader_id', tlId);
+      if (!customDistribution || customDistribution.length === 0) return;
 
-      if (captainError) throw captainError;
-      if (!captains || captains.length === 0) return;
-
-      // Calculate per-captain target (divide equally)
-      const perCaptainTarget = Math.floor(targetAmount / captains.length);
-
-      // Create or update captain targets
-      const captainTargets = captains.map(captain => ({
+      // Create or update captain targets with custom allocations
+      const captainTargets = customDistribution.map(captain => ({
         captain_id: captain.id,
         team_leader_id: tlId,
         year,
         month,
-        target_amount: perCaptainTarget,
+        target_amount: captain.target,
       }));
 
       // Upsert captain targets
@@ -989,38 +1000,60 @@ export default function SalesTargetPage() {
               />
             </div>
 
-            {/* Captain Distribution Preview */}
+            {/* Captain Distribution - Editable */}
             {captainDistribution.length > 0 && (
               <div className="border-t pt-4">
-                <div className="mb-3">
-                  <h3 className="text-sm font-semibold text-foreground mb-2">Captain Distribution</h3>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Total target will be distributed equally among {captainDistribution.length} captain(s)
-                  </p>
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">Captain Distribution</h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Distribute target among {captainDistribution.length} captain(s). Edit amounts as needed.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={distributeEqually}
+                    className="text-xs h-8"
+                  >
+                    Distribute Equally
+                  </Button>
                 </div>
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {captainDistribution.map((captain) => (
-                    <div key={captain.id} className="flex items-center justify-between p-2 bg-muted/40 rounded text-sm">
-                      <span className="font-medium text-foreground">{captain.name}</span>
-                      <span className="text-muted-foreground">
-                        Target: <span className="font-semibold text-foreground">{captain.target.toLocaleString()}</span>
-                      </span>
+                    <div key={captain.id} className="flex items-center gap-2 p-2 bg-muted/30 rounded hover:bg-muted/50 transition">
+                      <span className="flex-1 font-medium text-foreground text-sm">{captain.name}</span>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="number"
+                          min="0"
+                          value={captain.target}
+                          onChange={(e) => updateCaptainTarget(captain.id, parseInt(e.target.value) || 0)}
+                          className="glass-input w-24 h-8 text-xs text-right"
+                          placeholder="0"
+                        />
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">units</span>
+                      </div>
                     </div>
                   ))}
                 </div>
-                <div className="mt-3 p-2 bg-primary/5 rounded border border-primary/20">
+                <div className="mt-3 p-3 bg-primary/5 rounded border border-primary/20 space-y-1">
                   <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Per Captain:</span>
-                    <span className="font-semibold text-foreground">
-                      {captainDistribution[0]?.target.toLocaleString() || 0}
-                    </span>
+                    <span className="text-muted-foreground">Total TL Target:</span>
+                    <span className="font-semibold text-foreground">{(parseInt(formData.target_amount) || 0).toLocaleString()}</span>
                   </div>
-                  <div className="flex justify-between text-xs mt-1">
+                  <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">Total Distributed:</span>
-                    <span className="font-semibold text-foreground">
+                    <span className={`font-semibold ${captainDistribution.reduce((sum, c) => sum + c.target, 0) === parseInt(formData.target_amount) || formData.target_amount === '' ? 'text-green-600' : 'text-orange-600'}`}>
                       {(captainDistribution.reduce((sum, c) => sum + c.target, 0)).toLocaleString()}
                     </span>
                   </div>
+                  {captainDistribution.reduce((sum, c) => sum + c.target, 0) !== parseInt(formData.target_amount) && formData.target_amount !== '' && (
+                    <div className="text-xs text-orange-600 mt-1">
+                      ⚠️ Distribution total ({captainDistribution.reduce((sum, c) => sum + c.target, 0).toLocaleString()}) does not match target ({(parseInt(formData.target_amount) || 0).toLocaleString()})
+                    </div>
+                  )}
                 </div>
               </div>
             )}
