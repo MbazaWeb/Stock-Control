@@ -67,6 +67,7 @@ export default function SalesTargetPage() {
     month: new Date().getMonth(),
     target_amount: '',
   });
+  const [captainDistribution, setCaptainDistribution] = useState<Array<{ id: string; name: string; target: number }>>([]);
   const [filterTeamLeader, setFilterTeamLeader] = useState('all');
   const [filterPerformance, setFilterPerformance] = useState<'all' | 'best' | 'lower'>('all');
 
@@ -216,6 +217,16 @@ export default function SalesTargetPage() {
     fetchData();
   }, [fetchData]);
 
+  // Update captain distribution when team leader or target amount changes in dialog
+  useEffect(() => {
+    if (dialogOpen && formData.team_leader_id && formData.target_amount) {
+      const targetAmount = parseInt(formData.target_amount);
+      if (targetAmount > 0) {
+        loadCaptainDistribution(formData.team_leader_id, targetAmount);
+      }
+    }
+  }, [formData.team_leader_id, formData.target_amount, dialogOpen]);
+
   // Calculate summary stats
   const summary = useMemo(() => {
     const currentMonthTargets = targets.filter(t => t.year === currentMonth.year && t.month === currentMonth.month);
@@ -266,6 +277,8 @@ export default function SalesTargetPage() {
         month: target.month,
         target_amount: target.target_amount.toString(),
       });
+      // Load captain distribution for this target
+      loadCaptainDistribution(target.team_leader_id, parseInt(target.target_amount.toString()));
     } else {
       setEditingTarget(null);
       setFormData({
@@ -274,8 +287,36 @@ export default function SalesTargetPage() {
         month: currentMonth.month,
         target_amount: '',
       });
+      setCaptainDistribution([]);
     }
     setDialogOpen(true);
+  };
+
+  const loadCaptainDistribution = async (tlId: string, targetAmount: number) => {
+    try {
+      const { data: captains, error } = await supabase
+        .from('captains')
+        .select('id, name')
+        .eq('team_leader_id', tlId)
+        .order('name');
+
+      if (error) throw error;
+
+      if (captains && captains.length > 0) {
+        const perCaptainTarget = Math.floor(targetAmount / captains.length);
+        const distribution = captains.map(captain => ({
+          id: captain.id,
+          name: captain.name,
+          target: perCaptainTarget,
+        }));
+        setCaptainDistribution(distribution);
+      } else {
+        setCaptainDistribution([]);
+      }
+    } catch (error) {
+      console.error('Error loading captain distribution:', error);
+      setCaptainDistribution([]);
+    }
   };
 
   const handleCloseDialog = () => {
@@ -287,6 +328,7 @@ export default function SalesTargetPage() {
       month: currentMonth.month,
       target_amount: '',
     });
+    setCaptainDistribution([]);
   };
 
   const handleSubmit = async () => {
@@ -946,6 +988,42 @@ export default function SalesTargetPage() {
                 className="glass-input"
               />
             </div>
+
+            {/* Captain Distribution Preview */}
+            {captainDistribution.length > 0 && (
+              <div className="border-t pt-4">
+                <div className="mb-3">
+                  <h3 className="text-sm font-semibold text-foreground mb-2">Captain Distribution</h3>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Total target will be distributed equally among {captainDistribution.length} captain(s)
+                  </p>
+                </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {captainDistribution.map((captain) => (
+                    <div key={captain.id} className="flex items-center justify-between p-2 bg-muted/40 rounded text-sm">
+                      <span className="font-medium text-foreground">{captain.name}</span>
+                      <span className="text-muted-foreground">
+                        Target: <span className="font-semibold text-foreground">{captain.target.toLocaleString()}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 p-2 bg-primary/5 rounded border border-primary/20">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Per Captain:</span>
+                    <span className="font-semibold text-foreground">
+                      {captainDistribution[0]?.target.toLocaleString() || 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs mt-1">
+                    <span className="text-muted-foreground">Total Distributed:</span>
+                    <span className="font-semibold text-foreground">
+                      {(captainDistribution.reduce((sum, c) => sum + c.target, 0)).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter>
