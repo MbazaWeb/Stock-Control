@@ -99,13 +99,14 @@ export default function TLSalesTargetPage() {
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('*')
+        .eq('team_leader_id', tlId)
         .eq('payment_status', 'Paid');
 
       if (salesError) throw salesError;
 
       // Calculate performance metrics
       const targetsWithPerformance: TargetWithPerformance[] = (targetsData || []).map((target) => {
-        // Count actual sales
+        // Count actual sales for this month
         const actual_sales = (salesData || []).filter(
           (sale: Tables<'sales_records'>) => 
             new Date(sale.sale_date).getFullYear() === target.year &&

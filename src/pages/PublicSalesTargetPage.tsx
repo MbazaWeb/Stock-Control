@@ -51,6 +51,7 @@ interface TargetWithPerformance {
   mtd_sales: number;
   mtd_performance_percent: number;
   is_regional?: boolean;
+  region_id?: string;
 }
 
 export default function PublicSalesTargetPage() {
@@ -264,6 +265,7 @@ export default function PublicSalesTargetPage() {
           mtd_sales,
           mtd_performance_percent,
           is_regional: false,
+          region_id: target.team_leaders?.region_id || undefined,
         };
       });
 
@@ -311,8 +313,10 @@ export default function PublicSalesTargetPage() {
         if (t.is_regional) {
           const region = regions.find(r => r.name === t.name);
           return region?.id === selectedRegion;
+        } else {
+          // For TL targets, filter by their region_id matching selected region
+          return t.region_id === selectedRegion;
         }
-        return true;
       });
     } else if (selectedZone !== 'all') {
       const zoneRegionIds = filteredRegions.map(r => r.id);
@@ -320,8 +324,10 @@ export default function PublicSalesTargetPage() {
         if (t.is_regional) {
           const region = regions.find(r => r.name === t.name);
           return zoneRegionIds.includes(region?.id || '');
+        } else {
+          // For TL targets, filter by their region_id matching zone regions
+          return zoneRegionIds.includes(t.region_id || '');
         }
-        return true;
       });
     }
 
@@ -399,8 +405,8 @@ export default function PublicSalesTargetPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-display font-bold">Regional Sales Performance</h1>
-          <p className="text-muted-foreground mt-1">Filter by zone and region to view targets and team leader performance</p>
+          <h1 className="text-3xl font-display font-bold">Sales Targets Performance</h1>
+          <p className="text-muted-foreground mt-1">View regional and team leader targets with performance metrics. Filter by zone and region for detailed insights</p>
         </div>
 
         {/* Filters */}
@@ -456,7 +462,7 @@ export default function PublicSalesTargetPage() {
         </GlassCard>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <GlassCard>
             <div className="space-y-2">
               <p className="text-muted-foreground text-sm">Total Regions</p>
@@ -467,19 +473,17 @@ export default function PublicSalesTargetPage() {
 
           <GlassCard>
             <div className="space-y-2">
-              <p className="text-muted-foreground text-sm">Total Target</p>
-              <p className="text-3xl font-bold">{summary.totalTarget.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">Monthly goal</p>
+              <p className="text-muted-foreground text-sm">Total Team Leaders</p>
+              <p className="text-3xl font-bold">{teamLeadersOnly.length}</p>
+              <p className="text-xs text-muted-foreground">This month</p>
             </div>
           </GlassCard>
 
           <GlassCard>
             <div className="space-y-2">
-              <p className="text-muted-foreground text-sm">Actual Sales</p>
-              <p className="text-3xl font-bold">{summary.totalActual.toLocaleString()}</p>
-              <p className={`text-xs font-medium ${summary.totalActual >= summary.totalTarget ? 'text-green-600' : 'text-red-600'}`}>
-                {summary.totalActual >= summary.totalTarget ? '+' : ''}{summary.totalActual - summary.totalTarget}
-              </p>
+              <p className="text-muted-foreground text-sm">Total Target</p>
+              <p className="text-3xl font-bold">{summary.totalTarget.toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">Monthly goal</p>
             </div>
           </GlassCard>
 

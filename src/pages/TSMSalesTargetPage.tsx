@@ -116,10 +116,11 @@ export default function TSMSalesTargetPage() {
 
       if (targetsError) throw targetsError;
 
-      // Fetch all sales
+      // Fetch all sales for this region
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('*')
+        .eq('region_id', regionId)
         .eq('payment_status', 'Paid');
 
       if (salesError) throw salesError;

@@ -119,6 +119,7 @@ export default function CaptainSalesTargetPage() {
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('*')
+        .eq('captain_id', captainId)
         .eq('payment_status', 'Paid');
 
       if (salesError) throw salesError;
