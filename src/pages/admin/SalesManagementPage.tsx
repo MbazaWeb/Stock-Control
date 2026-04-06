@@ -298,17 +298,39 @@ export default function SalesManagementPage() {
     if (!deleteId) return;
 
     try {
-      const { error } = await supabase
+      // First, get the sale record to get inventory_id
+      const { data: saleData } = await supabase
+        .from('sales_records')
+        .select('inventory_id')
+        .eq('id', deleteId)
+        .single();
+
+      // Delete the sale record
+      const { error: deleteError } = await supabase
         .from('sales_records')
         .delete()
         .eq('id', deleteId);
 
-      if (error) throw error;
+      if (deleteError) throw deleteError;
+
+      // If there's an inventory item linked, revert it back to available
+      if (saleData?.inventory_id) {
+        const { error: updateError } = await supabase
+          .from('inventory')
+          .update({
+            status: 'available',
+            payment_status: 'Unpaid',
+            package_status: 'No Package'
+          })
+          .eq('id', saleData.inventory_id);
+
+        if (updateError) console.error('Warning: Could not revert inventory status:', updateError);
+      }
 
       setSales(prev => prev.filter(s => s.id !== deleteId));
       toast({
         title: 'Deleted',
-        description: 'Sale record deleted',
+        description: 'Sale record deleted and inventory restored to available',
       });
     } catch (error) {
       toast({

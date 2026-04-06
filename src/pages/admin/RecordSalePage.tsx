@@ -533,10 +533,36 @@ export default function RecordSalePage() {
     if (!deleteSale) return;
     
     try {
-      const { error } = await supabase.from('sales_records').delete().eq('id', deleteSale.id);
-      if (error) throw error;
+      // First, get the inventory item to revert it back to available
+      const { data: saleData } = await supabase
+        .from('sales_records')
+        .select('inventory_id')
+        .eq('id', deleteSale.id)
+        .single();
+
+      // Delete the sale record
+      const { error: deleteError } = await supabase
+        .from('sales_records')
+        .delete()
+        .eq('id', deleteSale.id);
       
-      toast({ title: 'Deleted', description: 'Sale record removed successfully.' });
+      if (deleteError) throw deleteError;
+
+      // If there's an inventory item linked, revert it back to available
+      if (saleData?.inventory_id) {
+        const { error: updateError } = await supabase
+          .from('inventory')
+          .update({
+            status: 'available',
+            payment_status: 'Unpaid',
+            package_status: 'No Package'
+          })
+          .eq('id', saleData.inventory_id);
+
+        if (updateError) console.error('Warning: Could not revert inventory status:', updateError);
+      }
+      
+      toast({ title: 'Deleted', description: 'Sale record removed and inventory restored to available.' });
       setDeleteDialogOpen(false);
       setDeleteSale(null);
       fetchData();
@@ -550,10 +576,40 @@ export default function RecordSalePage() {
     if (selectedItems.length === 0) return;
     
     try {
-      const { error } = await supabase.from('sales_records').delete().in('id', selectedItems);
-      if (error) throw error;
+      // First, get all inventory items linked to these sales
+      const { data: salesData } = await supabase
+        .from('sales_records')
+        .select('inventory_id')
+        .in('id', selectedItems);
+
+      // Delete all selected sales
+      const { error: deleteError } = await supabase
+        .from('sales_records')
+        .delete()
+        .in('id', selectedItems);
       
-      toast({ title: 'Deleted', description: `${selectedItems.length} sale(s) removed successfully.` });
+      if (deleteError) throw deleteError;
+
+      // Get inventory IDs to revert
+      const inventoryIds = (salesData || [])
+        .map(s => s.inventory_id)
+        .filter((id): id is string => Boolean(id));
+
+      // Revert all linked inventory items back to available
+      if (inventoryIds.length > 0) {
+        const { error: updateError } = await supabase
+          .from('inventory')
+          .update({
+            status: 'available',
+            payment_status: 'Unpaid',
+            package_status: 'No Package'
+          })
+          .in('id', inventoryIds);
+
+        if (updateError) console.error('Warning: Could not revert inventory status for some items:', updateError);
+      }
+      
+      toast({ title: 'Deleted', description: `${selectedItems.length} sale(s) removed and inventory restored to available.` });
       setSelectedItems([]);
       fetchData();
     } catch (error: unknown) {
