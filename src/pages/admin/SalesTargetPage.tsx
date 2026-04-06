@@ -145,10 +145,10 @@ export default function SalesTargetPage() {
         team_leaders: { name: string } | null;
       }
 
-      // Fetch sales records for current and previous year to calculate performance
-      const twoYearsAgo = new Date();
-      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-      const twoYearsAgoISO = twoYearsAgo.toISOString().split('T')[0];
+      // Fetch sales records for current and previous month to calculate performance (optimization to prevent connection timeout)
+      const twoMonthsAgo = new Date();
+      twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+      const twoMonthsAgoISO = twoMonthsAgo.toISOString().split('T')[0];
       const today = new Date().toISOString().split('T')[0];
 
       // Count all sold stock regardless of payment/package/completion status
@@ -156,7 +156,7 @@ export default function SalesTargetPage() {
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('team_leader_id, sale_date')
-        .gte('sale_date', twoYearsAgoISO)
+        .gte('sale_date', twoMonthsAgoISO)
         .lte('sale_date', today);
 
       if (salesError) throw salesError;

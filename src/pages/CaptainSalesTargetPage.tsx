@@ -115,10 +115,10 @@ export default function CaptainSalesTargetPage() {
 
       if (targetsError) throw targetsError;
 
-      // Fetch all sales for this captain (last 2 years for performance calculation)
-      const twoYearsAgo = new Date();
-      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-      const twoYearsAgoISO = twoYearsAgo.toISOString().split('T')[0];
+      // Fetch all sales for this captain (last 2 months for performance calculation - optimization to prevent connection timeout)
+      const twoMonthsAgo = new Date();
+      twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+      const twoMonthsAgoISO = twoMonthsAgo.toISOString().split('T')[0];
       const today = new Date().toISOString().split('T')[0];
 
       // Count all sold stock regardless of payment/package/completion status
@@ -126,7 +126,7 @@ export default function CaptainSalesTargetPage() {
         .from('sales_records')
         .select('*')
         .eq('captain_id', captainId)
-        .gte('sale_date', twoYearsAgoISO)
+        .gte('sale_date', twoMonthsAgoISO)
         .lte('sale_date', today);
 
       if (salesError) throw salesError;

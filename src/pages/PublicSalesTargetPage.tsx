@@ -164,18 +164,18 @@ export default function PublicSalesTargetPage() {
       }
       console.log('Sales Targets fetched:', tlTargetsData?.length || 0, 'records');
 
-      // Fetch all paid sales (last 2 years for performance calculation)
+      // Fetch sales for performance calculation (last 2 months only - optimization to prevent connection timeout)
       console.log('Fetching sales_records...');
-      const twoYearsAgo = new Date();
-      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
-      const twoYearsAgoISO = twoYearsAgo.toISOString().split('T')[0];
+      const twoMonthsAgo = new Date();
+      twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+      const twoMonthsAgoISO = twoMonthsAgo.toISOString().split('T')[0];
       const today = new Date().toISOString().split('T')[0];
 
       // Count all sold stock regardless of payment/package/completion status
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('*')
-        .gte('sale_date', twoYearsAgoISO)
+        .gte('sale_date', twoMonthsAgoISO)
         .lte('sale_date', today);
 
       if (salesError) {
