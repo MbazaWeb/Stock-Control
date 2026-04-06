@@ -184,6 +184,7 @@ export default function InventoryPage() {
     smartcard_number: '',
     serial_number: '',
     stock_type: 'Full Set',
+    status: 'available',
     notes: '',
     zone_id: '',
     region_id: '',
@@ -374,6 +375,7 @@ export default function InventoryPage() {
       smartcard_number: '',
       serial_number: '',
       stock_type: 'Full Set',
+      status: 'available',
       notes: '',
       zone_id: '',
       region_id: '',
@@ -545,6 +547,7 @@ export default function InventoryPage() {
       smartcard_number: formData.smartcard_number,
       serial_number: formData.serial_number.toUpperCase(),
       stock_type: formData.stock_type,
+      status: formData.status,
       notes: formData.notes || null,
       zone_id: formData.zone_id || null,
       region_id: formData.region_id || null,
@@ -902,6 +905,7 @@ export default function InventoryPage() {
       smartcard_number: item.smartcard_number,
       serial_number: item.serial_number,
       stock_type: item.stock_type,
+      status: item.status || 'available',
       notes: item.notes || '',
       zone_id: item.zone_id || '',
       region_id: item.region_id || '',
@@ -1494,6 +1498,24 @@ export default function InventoryPage() {
                   </SelectContent>
                 </Select>
               </div>
+              {editingItem && (
+                <div>
+                  <Label>Status</Label>
+                  <Select
+                    value={formData.status}
+                    onValueChange={(v) => setFormData({ ...formData, status: v })}
+                  >
+                    <SelectTrigger className="glass-input">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="available">Available</SelectItem>
+                      <SelectItem value="assigned">Assigned</SelectItem>
+                      <SelectItem value="sold">Sold</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Zone</Label>
