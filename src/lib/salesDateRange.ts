@@ -43,10 +43,14 @@ const getMonthRange = (monthOffset: number, baseDate = new Date()) => {
 export const getDefaultSalesDateRange = (baseDate = new Date()): SalesDateRange => {
   const currentMonth = getMonthRange(0, baseDate);
 
+  // For "this_month", use today as endDate, not end of month
+  // This ensures we only show sales FROM the start of month TO today
+  const today = toLocalDate(baseDate);
+
   return {
     preset: 'this_month',
     startDate: currentMonth.startDate,
-    endDate: currentMonth.endDate,
+    endDate: today,  // Use today, not end of month
   };
 };
 
@@ -76,15 +80,21 @@ export const createSalesDateRange = (
       : { preset, startDate: endDate, endDate: startDate };
   }
 
-  // 'this_month' - FIXED: Now uses full month range (April 1 - April 30)
+  // 'this_month' - uses today as endDate, not end of month
   const range = getMonthRange(0, baseDate);
-  console.log('[SalesDate] This Month Range (FIXED):', range);
-  console.log('[SalesDate] Today is:', toLocalDate(baseDate));
+  const today = toLocalDate(baseDate);
+  
+  console.log('[SalesDate] This Month (April 1 to TODAY):', {
+    startDate: range.startDate,
+    endDate: today,
+    calculated: range.endDate,
+    note: 'Using TODAY not end-of-month'
+  });
   
   return {
     preset,
     startDate: range.startDate,
-    endDate: range.endDate,
+    endDate: today,  // ← FIX: Use today, not end of month
   };
 };
 
