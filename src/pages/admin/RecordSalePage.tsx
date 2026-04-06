@@ -169,7 +169,14 @@ export default function RecordSalePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Build sales query with region filtering for regional admins
+      // IMPORTANT: Filter by sale_date, not created_at
+      // This ensures sales are counted in the month they were ACTUALLY sold
+      console.log('[FetchData] Date Range:', {
+        startDate: salesDateRange.startDate,
+        endDate: salesDateRange.endDate,
+        preset: salesDatePreset
+      });
+
       let salesQuery = supabase
         .from('sales_records')
         .select('*')
@@ -191,12 +198,14 @@ export default function RecordSalePage() {
       ]);
 
       if (salesRes.error) throw salesRes.error;
+      
+      console.log('[FetchData] Sales returned:', salesRes.data?.length || 0);
+      
       if (salesRes.data) setSales(salesRes.data);
       if (zonesRes.data) setZones(zonesRes.data);
       if (captainRes.data) setCaptains(captainRes.data);
       if (dsrRes.data) setDsrs(dsrRes.data);
       
-      // For regional admins, filter team leaders and regions
       if (tlRes.data) {
         const filteredTLs = isRegionalAdmin && assignedRegionIds.length > 0
           ? tlRes.data.filter(tl => tl.region_id && assignedRegionIds.includes(tl.region_id))
@@ -220,7 +229,7 @@ export default function RecordSalePage() {
     } finally {
       setLoading(false);
     }
-  }, [assignedRegionIds, isRegionalAdmin, salesDateRange.endDate, salesDateRange.startDate, toast]);
+  }, [assignedRegionIds, isRegionalAdmin, salesDateRange.endDate, salesDateRange.startDate, salesDatePreset, toast]);
 
   useEffect(() => {
     fetchData();
@@ -231,7 +240,7 @@ export default function RecordSalePage() {
     setSalesDatePreset(preset);
     setSalesDateFrom(nextRange.startDate);
     setSalesDateTo(nextRange.endDate);
-    setCurrentPage(1); // Reset pagination when date range changes
+    setCurrentPage(1);
   };
 
   // Fetch all stock assigned to TL, their Captains, and DSRs when TL changes
@@ -244,19 +253,15 @@ export default function RecordSalePage() {
     let isMounted = true;
 
     const fetchAllStock = async () => {
-      // Get all captains under this TL
       const tlCaptains = captains.filter(c => c.team_leader_id === formData.team_leader_id).map(c => c.id);
-      // Get all dsrs under these captains
       const tlDsrs = dsrs.filter(d => tlCaptains.includes(d.captain_id || '')).map(d => d.id);
 
-      // Build all assigned_to_type/id pairs
       const assignments = [
         { type: 'team_leader', id: formData.team_leader_id },
         ...tlCaptains.map(id => ({ type: 'captain', id })),
         ...tlDsrs.map(id => ({ type: 'dsr', id })),
       ];
 
-      // Fetch all stock assigned to any of these
       let allStock: InventoryItem[] = [];
       for (const a of assignments) {
         const { data, error } = await supabase
@@ -298,7 +303,6 @@ export default function RecordSalePage() {
     return () => { isMounted = false; };
   }, [formData.team_leader_id, captains, dsrs]);
 
-  // Filter TLs by selected region
   const filteredTLs = formData.region_id
     ? teamLeaders.filter((tl) => tl.region_id === formData.region_id)
     : [];
@@ -411,7 +415,6 @@ export default function RecordSalePage() {
 
     let selectedStock;
     if (editingSale) {
-      // Always use the original stock from the sale being edited
       selectedStock = {
         smartcard_number: editingSale.smartcard_number,
         serial_number: editingSale.serial_number,
@@ -429,7 +432,6 @@ export default function RecordSalePage() {
     setSaving(true);
     try {
       if (attachDsrMode && editingSale) {
-        // Just update the DSR for the sale
         const { error } = await supabase
           .from('sales_records')
           .update({ 
@@ -442,7 +444,6 @@ export default function RecordSalePage() {
         if (error) throw error;
         toast({ title: 'Success', description: 'DSR attached successfully!' });
       } else if (editingSale) {
-        // Update existing sale
         const region = regions.find((r) => r.id === formData.region_id);
         
         const saleData = {
@@ -468,14 +469,11 @@ export default function RecordSalePage() {
         if (error) throw error;
         toast({ title: 'Success', description: 'Sale updated successfully!' });
       } else {
-        // Insert new sale record
         const region = regions.find((r) => r.id === formData.region_id);
         
-        // Determine seller type and id from form
         let sellerType = formData.seller_type;
         let sellerId = formData.seller_id;
         
-        // Fallback: if not set, use DSR, Captain, or TL from form
         if (!sellerType || !sellerId) {
           if (formData.dsr_id) {
             sellerType = 'dsr';
@@ -507,7 +505,6 @@ export default function RecordSalePage() {
         const { error } = await supabase.from('sales_records').insert([saleData]);
         if (error) throw error;
 
-        // Mark inventory as sold
         const { error: inventoryError } = await supabase
           .from('inventory')
           .update({ status: 'sold' })
@@ -533,14 +530,12 @@ export default function RecordSalePage() {
     if (!deleteSale) return;
     
     try {
-      // First, get the inventory item to revert it back to available
       const { data: saleData } = await supabase
         .from('sales_records')
         .select('inventory_id')
         .eq('id', deleteSale.id)
         .single();
 
-      // Delete the sale record
       const { error: deleteError } = await supabase
         .from('sales_records')
         .delete()
@@ -548,7 +543,6 @@ export default function RecordSalePage() {
       
       if (deleteError) throw deleteError;
 
-      // If there's an inventory item linked, revert it back to available
       if (saleData?.inventory_id) {
         const { error: updateError } = await supabase
           .from('inventory')
@@ -576,13 +570,11 @@ export default function RecordSalePage() {
     if (selectedItems.length === 0) return;
     
     try {
-      // First, get all inventory items linked to these sales
       const { data: salesData } = await supabase
         .from('sales_records')
         .select('inventory_id')
         .in('id', selectedItems);
 
-      // Delete all selected sales
       const { error: deleteError } = await supabase
         .from('sales_records')
         .delete()
@@ -590,12 +582,10 @@ export default function RecordSalePage() {
       
       if (deleteError) throw deleteError;
 
-      // Get inventory IDs to revert
       const inventoryIds = (salesData || [])
         .map(s => s.inventory_id)
         .filter((id): id is string => Boolean(id));
 
-      // Revert all linked inventory items back to available
       if (inventoryIds.length > 0) {
         const { error: updateError } = await supabase
           .from('inventory')
@@ -711,6 +701,8 @@ export default function RecordSalePage() {
 
   useEffect(() => { setRegionFilter('all'); }, [zoneFilter]);
 
+  // CRITICAL FIX: Filter sales based on sale_date, search, zone, and region only
+  // Date filtering is already done server-side in fetchData()
   const filteredSales = sales.filter((s) => {
     const query = searchQuery.toLowerCase();
     const dsr = dsrMap.get(s.dsr_id || '');
@@ -723,13 +715,18 @@ export default function RecordSalePage() {
     const matchesZone = zoneFilter === 'all' || s.zone_id === zoneFilter;
     const matchesRegion = regionFilter === 'all' || s.region_id === regionFilter;
     
-    // Double-check: Ensure sale_date is within the selected date range
-    // This catches any edge cases where server-side filtering might miss
-    const saleDate = s.sale_date;
-    const matchesDateRange = saleDate >= salesDateRange.startDate && saleDate <= salesDateRange.endDate;
-    
-    return matchesSearch && matchesZone && matchesRegion && matchesDateRange;
+    return matchesSearch && matchesZone && matchesRegion;
   });
+
+  // CRITICAL FIX: Stats must use filteredSales (which respects the sale_date filter)
+  // This ensures that when you select "Last Month", the stats only show last month's sales
+  const stats = {
+    total: filteredSales.length,
+    paid: filteredSales.filter((s) => s.payment_status === 'Paid').length,
+    unpaid: filteredSales.filter((s) => s.payment_status === 'Unpaid').length,
+    noPackage: filteredSales.filter((s) => s.package_status === 'No Package').length,
+    incomplete: filteredSales.filter((s) => !s.dsr_id).length,
+  };
 
   // Pagination
   const totalPages = Math.ceil(filteredSales.length / itemsPerPage);
@@ -754,14 +751,6 @@ export default function RecordSalePage() {
     );
   }
 
-  const stats = {
-    total: sales.length,
-    paid: sales.filter((s) => s.payment_status === 'Paid').length,
-    unpaid: sales.filter((s) => s.payment_status === 'Unpaid').length,
-    noPackage: sales.filter((s) => s.package_status === 'No Package').length,
-    incomplete: sales.filter((s) => !s.dsr_id).length,
-  };
-
   return (
     <AdminLayout>
       <div className="space-y-3 md:space-y-6">
@@ -773,7 +762,9 @@ export default function RecordSalePage() {
                 Record Sales
               </span>
             </h1>
-            <p className="text-muted-foreground mt-1">Simple sales recording for {salesDateLabel.toLowerCase()}</p>
+            <p className="text-muted-foreground mt-1">
+              Sales recorded based on <strong className="text-primary">sale date</strong> (not entry date) • {salesDateLabel.toLowerCase()}
+            </p>
           </div>
           <Button
             className="bg-gradient-to-r from-primary to-secondary text-primary-foreground"
@@ -795,7 +786,7 @@ export default function RecordSalePage() {
           onEndDateChange={setSalesDateTo}
         />
 
-        {/* Stats */}
+        {/* Stats - Now correctly based on sale_date filter */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <GlassCard className="text-center">
             <ShoppingCart className="h-8 w-8 mx-auto text-primary mb-2" />
@@ -938,7 +929,7 @@ export default function RecordSalePage() {
                   </TableHead>
                   <TableHead>Smartcard / Serial</TableHead>
                   <TableHead>Type</TableHead>
-                  <TableHead>Date</TableHead>
+                  <TableHead>Sale Date</TableHead>
                   <TableHead>Payment</TableHead>
                   <TableHead>Package</TableHead>
                   <TableHead>Team Leader</TableHead>
@@ -1138,7 +1129,6 @@ export default function RecordSalePage() {
                     </p>
                   </div>
                   
-                  {/* Select TL */}
                   <div>
                     <Label htmlFor="attach-tl">Team Leader *</Label>
                     <Select
@@ -1162,7 +1152,6 @@ export default function RecordSalePage() {
                     </Select>
                   </div>
                   
-                  {/* Select Captain */}
                   <div>
                     <Label htmlFor="attach-captain">Captain *</Label>
                     <Select
@@ -1187,7 +1176,6 @@ export default function RecordSalePage() {
                     </Select>
                   </div>
                   
-                  {/* Select DSR */}
                   <div>
                     <Label htmlFor="attach-dsr">DSR *</Label>
                     <Select
@@ -1215,7 +1203,6 @@ export default function RecordSalePage() {
                 </div>
               ) : (
                 <>
-                  {/* 1. Select Region */}
                   <div>
                     <Label htmlFor="region">Region *</Label>
                     <Select value={formData.region_id} onValueChange={handleRegionChange}>
@@ -1230,7 +1217,6 @@ export default function RecordSalePage() {
                     </Select>
                   </div>
 
-                  {/* 2. Select Team Leader (filtered by region) */}
                   <div>
                     <Label htmlFor="team-leader">Team Leader *</Label>
                     <Select
@@ -1306,7 +1292,6 @@ export default function RecordSalePage() {
                     <p className="mt-1 text-xs text-muted-foreground">If DSR is missing, the sale will stay marked as Incomplete.</p>
                   </div>
 
-                  {/* 3. Select Stock (all in hand for TL, Captain, DSR) */}
                   {!editingSale && (
                     <div>
                       <Label htmlFor="stock-item">Stock Item * <span className="text-muted-foreground text-xs">({tlStock.length} available)</span></Label>
@@ -1334,7 +1319,6 @@ export default function RecordSalePage() {
                     </div>
                   )}
 
-                  {/* 3b. Select Seller (who sold) */}
                   <div>
                     <Label htmlFor="sold-by">Sold By *</Label>
                     <Select
@@ -1343,7 +1327,6 @@ export default function RecordSalePage() {
                         if (v === 'none') {
                           setFormData({ ...formData, seller_id: '', seller_type: '' });
                         } else {
-                          // Find type by id
                           let type = '';
                           if (v === formData.team_leader_id) type = 'team_leader';
                           else if (captains.some(c => c.id === v)) type = 'captain';
@@ -1376,7 +1359,6 @@ export default function RecordSalePage() {
                     <p className="mt-1 text-xs text-muted-foreground">Select the actual seller (TL, Captain, or DSR).</p>
                   </div>
 
-                  {/* 4. Package Status */}
                   <div>
                     <Label htmlFor="package-status">Package Status</Label>
                     <Select
@@ -1393,7 +1375,6 @@ export default function RecordSalePage() {
                     </Select>
                   </div>
 
-                  {/* 5. Payment Status */}
                   <div>
                     <Label htmlFor="payment-status">Payment Status</Label>
                     <Select
@@ -1410,9 +1391,8 @@ export default function RecordSalePage() {
                     </Select>
                   </div>
 
-                  {/* 6. Sale Date */}
                   <div>
-                    <Label htmlFor="sale-date">Sale Date</Label>
+                    <Label htmlFor="sale-date">Sale Date *</Label>
                     <Input
                       id="sale-date"
                       name="sale-date"
@@ -1421,6 +1401,9 @@ export default function RecordSalePage() {
                       onChange={(e) => setFormData({ ...formData, sale_date: e.target.value })}
                       className="glass-input"
                     />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      The actual date the stock was sold (affects which month this sale counts toward)
+                    </p>
                   </div>
                 </>
               )}

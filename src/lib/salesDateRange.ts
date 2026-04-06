@@ -1,3 +1,5 @@
+// /lib/salesDateRange.ts
+
 export type SalesDatePreset = 'this_month' | 'last_month' | 'custom';
 
 export interface SalesDateRange {
@@ -8,19 +10,33 @@ export interface SalesDateRange {
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
-const toIsoDate = (date: Date) => date.toISOString().split('T')[0];
+// CRITICAL FIX: Use local date to avoid timezone issues
+// This ensures dates are compared as YYYY-MM-DD without timezone shifts
+const toLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
-const parseDate = (dateValue: string) => new Date(`${dateValue}T00:00:00`);
+const parseLocalDate = (dateString: string): Date => {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
 
 const normalizeDateValue = (dateValue: string) => dateValue.slice(0, 10);
 
 const getMonthRange = (monthOffset: number, baseDate = new Date()) => {
-  const monthStart = new Date(baseDate.getFullYear(), baseDate.getMonth() + monthOffset, 1);
-  const monthEnd = new Date(baseDate.getFullYear(), baseDate.getMonth() + monthOffset + 1, 0);
+  // Use local date to avoid timezone shifts
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth() + monthOffset;
+  
+  const monthStart = new Date(year, month, 1);
+  const monthEnd = new Date(year, month + 1, 0);
 
   return {
-    startDate: toIsoDate(monthStart),
-    endDate: toIsoDate(monthEnd),
+    startDate: toLocalDate(monthStart),
+    endDate: toLocalDate(monthEnd),
   };
 };
 
@@ -30,7 +46,7 @@ export const getDefaultSalesDateRange = (baseDate = new Date()): SalesDateRange 
   return {
     preset: 'this_month',
     startDate: currentMonth.startDate,
-    endDate: toIsoDate(baseDate),
+    endDate: currentMonth.endDate,
   };
 };
 
@@ -41,9 +57,12 @@ export const createSalesDateRange = (
   baseDate = new Date()
 ): SalesDateRange => {
   if (preset === 'last_month') {
+    const range = getMonthRange(-1, baseDate);
+    console.log('[SalesDate] Last Month Range:', range);
     return {
       preset,
-      ...getMonthRange(-1, baseDate),
+      startDate: range.startDate,
+      endDate: range.endDate,
     };
   }
 
@@ -57,8 +76,16 @@ export const createSalesDateRange = (
       : { preset, startDate: endDate, endDate: startDate };
   }
 
-  // 'this_month' - uses today as endDate, not full month
-  return getDefaultSalesDateRange(baseDate);
+  // 'this_month' - FIXED: Now uses full month range (April 1 - April 30)
+  const range = getMonthRange(0, baseDate);
+  console.log('[SalesDate] This Month Range (FIXED):', range);
+  console.log('[SalesDate] Today is:', toLocalDate(baseDate));
+  
+  return {
+    preset,
+    startDate: range.startDate,
+    endDate: range.endDate,
+  };
 };
 
 export const getSalesDatePresetLabel = (preset: SalesDatePreset) => {
@@ -78,29 +105,44 @@ export const describeSalesDateRange = (range: SalesDateRange) => {
     return getSalesDatePresetLabel(range.preset);
   }
 
-  const formatDisplayDate = (dateValue: string) =>
-    parseDate(dateValue).toLocaleDateString('en-US', {
+  const formatDisplayDate = (dateValue: string) => {
+    const date = parseLocalDate(dateValue);
+    return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
     });
+  };
 
   return `${formatDisplayDate(range.startDate)} to ${formatDisplayDate(range.endDate)}`;
 };
 
 export const isDateWithinSalesRange = (dateValue: string, range: SalesDateRange) => {
   const normalizedDate = normalizeDateValue(dateValue);
-
-  return normalizedDate >= range.startDate && normalizedDate <= range.endDate;
+  const result = normalizedDate >= range.startDate && normalizedDate <= range.endDate;
+  
+  // Debug logging for March 31 specifically
+  if (normalizedDate === '2026-03-31') {
+    console.log('[SalesDate] Checking March 31 against range:', {
+      date: normalizedDate,
+      startDate: range.startDate,
+      endDate: range.endDate,
+      isWithin: result,
+      startCompare: normalizedDate >= range.startDate,
+      endCompare: normalizedDate <= range.endDate
+    });
+  }
+  
+  return result;
 };
 
 export const listSalesDateRangeDays = (range: SalesDateRange) => {
   const days: string[] = [];
-  const current = parseDate(range.startDate);
-  const end = parseDate(range.endDate);
+  const current = parseLocalDate(range.startDate);
+  const end = parseLocalDate(range.endDate);
 
   while (current <= end) {
-    days.push(toIsoDate(current));
+    days.push(toLocalDate(current));
     current.setDate(current.getDate() + 1);
   }
 
@@ -108,15 +150,15 @@ export const listSalesDateRangeDays = (range: SalesDateRange) => {
 };
 
 export const getSalesDateRangeDayCount = (range: SalesDateRange) => {
-  const start = parseDate(range.startDate);
-  const end = parseDate(range.endDate);
+  const start = parseLocalDate(range.startDate);
+  const end = parseLocalDate(range.endDate);
 
   return Math.max(1, Math.round((end.getTime() - start.getTime()) / DAY_IN_MS) + 1);
 };
 
 export const getPreviousSalesDateRange = (range: SalesDateRange): SalesDateRange => {
   const spanDays = getSalesDateRangeDayCount(range);
-  const previousEnd = parseDate(range.startDate);
+  const previousEnd = parseLocalDate(range.startDate);
   previousEnd.setDate(previousEnd.getDate() - 1);
 
   const previousStart = new Date(previousEnd);
@@ -124,7 +166,7 @@ export const getPreviousSalesDateRange = (range: SalesDateRange): SalesDateRange
 
   return {
     preset: 'custom',
-    startDate: toIsoDate(previousStart),
-    endDate: toIsoDate(previousEnd),
+    startDate: toLocalDate(previousStart),
+    endDate: toLocalDate(previousEnd),
   };
 };
