@@ -129,12 +129,11 @@ export default function SalesTargetPage() {
       const twoYearsAgoISO = twoYearsAgo.toISOString().split('T')[0];
       const today = new Date().toISOString().split('T')[0];
 
+      // Count all sold stock regardless of payment/package/completion status
+      // A sale_record only exists when inventory is marked as sold
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('team_leader_id, sale_date')
-        .eq('payment_status', 'Paid')
-        .eq('package_status', 'Packaged')
-        .not('dsr_id', 'is', null)
         .gte('sale_date', twoYearsAgoISO)
         .lte('sale_date', today);
 
