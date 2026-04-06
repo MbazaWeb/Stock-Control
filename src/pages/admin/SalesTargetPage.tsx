@@ -123,11 +123,18 @@ export default function SalesTargetPage() {
         team_leaders: { name: string } | null;
       }
 
-      // Fetch sales records to calculate actual sales
+      // Fetch sales records for current and previous year to calculate performance
+      const twoYearsAgo = new Date();
+      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+      const twoYearsAgoISO = twoYearsAgo.toISOString().split('T')[0];
+      const today = new Date().toISOString().split('T')[0];
+
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('team_leader_id, sale_date')
-        .eq('payment_status', 'Paid');
+        .eq('payment_status', 'Paid')
+        .gte('sale_date', twoYearsAgoISO)
+        .lte('sale_date', today);
 
       if (salesError) throw salesError;
 

@@ -310,10 +310,18 @@ export default function AdminDashboard() {
         });
       }
 
+      const thisMonthStart = new Date();
+      thisMonthStart.setDate(1);
+      const thisMonthStartISO = thisMonthStart.toISOString().split('T')[0];
+      const endOfCurrentMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
+      const endOfCurrentMonthISO = endOfCurrentMonth.toISOString().split('T')[0];
+
       const { data: noPackage } = await supabase
         .from('sales_records')
         .select('count')
-        .eq('package_status', 'No Package');
+        .eq('package_status', 'No Package')
+        .gte('sale_date', thisMonthStartISO)
+        .lte('sale_date', endOfCurrentMonthISO);
 
       const noPackageCount = noPackage?.[0]?.count || 0;
 

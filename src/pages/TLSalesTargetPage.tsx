@@ -95,12 +95,19 @@ export default function TLSalesTargetPage() {
 
       if (targetsError) throw targetsError;
 
-      // Fetch all sales for this team leader
+      // Fetch all sales for this team leader (last 2 years for performance calculation)
+      const twoYearsAgo = new Date();
+      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+      const twoYearsAgoISO = twoYearsAgo.toISOString().split('T')[0];
+      const today = new Date().toISOString().split('T')[0];
+
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('*')
         .eq('team_leader_id', tlId)
-        .eq('payment_status', 'Paid');
+        .eq('payment_status', 'Paid')
+        .gte('sale_date', twoYearsAgoISO)
+        .lte('sale_date', today);
 
       if (salesError) throw salesError;
 

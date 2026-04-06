@@ -25,10 +25,21 @@ export default function TLStockTable() {
 
   const fetchTLStock = async () => {
     try {
+      // Get current month date range for sales
+      const today = new Date();
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const monthStartISO = monthStart.toISOString().split('T')[0];
+      const monthEndISO = monthEnd.toISOString().split('T')[0];
+
       const [tlRes, inventoryRes, salesRes] = await Promise.all([
         supabase.from('team_leaders').select('*').order('name'),
         supabase.from('inventory').select('*'),
-        supabase.from('sales_records').select('*'),
+        supabase
+          .from('sales_records')
+          .select('*')
+          .gte('sale_date', monthStartISO)
+          .lte('sale_date', monthEndISO),
       ]);
 
       const teamLeaders = tlRes.data || [];

@@ -149,12 +149,19 @@ export default function PublicSalesTargetPage() {
       }
       console.log('Sales Targets fetched:', tlTargetsData?.length || 0, 'records');
 
-      // Fetch all paid sales
+      // Fetch all paid sales (last 2 years for performance calculation)
       console.log('Fetching sales_records...');
+      const twoYearsAgo = new Date();
+      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+      const twoYearsAgoISO = twoYearsAgo.toISOString().split('T')[0];
+      const today = new Date().toISOString().split('T')[0];
+
       const { data: salesData, error: salesError } = await supabase
         .from('sales_records')
         .select('*')
-        .eq('payment_status', 'Paid');
+        .eq('payment_status', 'Paid')
+        .gte('sale_date', twoYearsAgoISO)
+        .lte('sale_date', today);
 
       if (salesError) {
         console.error('Sales Records Error:', salesError);

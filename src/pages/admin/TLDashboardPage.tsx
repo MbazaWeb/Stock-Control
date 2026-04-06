@@ -100,7 +100,9 @@ export default function TLDashboardPage() {
 
       let totalSalesQuery = supabase
         .from('sales_records')
-        .select('id', { count: 'exact', head: true });
+        .select('id', { count: 'exact', head: true })
+        .gte('sale_date', thisMonthStart)
+        .lte('sale_date', endOfCurrentMonth);
 
       let soldThisMonthQuery = supabase
         .from('sales_records')
