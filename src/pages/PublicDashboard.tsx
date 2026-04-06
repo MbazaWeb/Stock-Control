@@ -221,7 +221,7 @@ export default function PublicDashboard() {
         `)
         .gte('sale_date', salesDateRange.startDate)
         .lte('sale_date', salesDateRange.endDate)
-        .order('created_at', { ascending: false })
+        .order('sale_date', { ascending: false })
         .limit(5);
 
       if (zoneFilter !== 'all') query = query.eq('zone_id', zoneFilter);

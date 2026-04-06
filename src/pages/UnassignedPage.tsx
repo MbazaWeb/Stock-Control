@@ -181,7 +181,7 @@ export default function UnassignedPage() {
         `)
         .gte('sale_date', salesDateRange.startDate)
         .lte('sale_date', salesDateRange.endDate)
-        .order('created_at', { ascending: false }),
+        .order('sale_date', { ascending: false }),
       ]);
 
       setZones(zonesRes.data || []);

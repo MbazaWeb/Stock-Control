@@ -353,7 +353,7 @@ export default function AdminDashboard() {
         `)
         .gte('sale_date', salesDateRange.startDate)
         .lte('sale_date', salesDateRange.endDate)
-        .order('created_at', { ascending: false })
+        .order('sale_date', { ascending: false })
         .limit(10);
 
       if (zoneFilter !== 'all') query = query.eq('zone_id', zoneFilter);
@@ -364,7 +364,7 @@ export default function AdminDashboard() {
       if (recentSales) {
         const formattedSales = recentSales.map(sale => ({
           ...sale,
-          sale_time: new Date(sale.created_at).toLocaleTimeString([], { 
+          sale_time: new Date(sale.sale_date).toLocaleTimeString([], { 
             hour: '2-digit', 
             minute: '2-digit' 
           })

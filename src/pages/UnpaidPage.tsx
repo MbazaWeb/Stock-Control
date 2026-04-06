@@ -188,7 +188,7 @@ export default function UnpaidPage() {
           .eq('payment_status', 'Unpaid')
           .gte('sale_date', salesDateRange.startDate)
           .lte('sale_date', salesDateRange.endDate)
-          .order('created_at', { ascending: false }),
+          .order('sale_date', { ascending: false }),
         supabase.from('zones').select('id, name').order('name'),
         supabase.from('regions').select('id, name, zone_id').order('name'),
       ]);
