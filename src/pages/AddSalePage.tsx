@@ -155,7 +155,7 @@ export default function AddSalePage() {
         .select('id, smartcard_number, serial_number, stock_type')
         .eq('assigned_to_type', assignedType)
         .eq('assigned_to_id', assignedId)
-        .eq('status', 'assigned')
+        .in('status', ['assigned', 'available'])
         .order('smartcard_number');
 
       if (excludeIds.length > 0) {

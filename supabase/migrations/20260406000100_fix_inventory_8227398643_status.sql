@@ -10,8 +10,7 @@ SET
   package_status = 'No Package'
 WHERE 
   smartcard_number = '8227398643' 
-  OR serial_number = '5075739175'
-LIMIT 1;
+  OR serial_number = '5075739175';
 
 -- Verify the update
 -- SELECT id, smartcard_number, serial_number, status, payment_status, package_status, assigned_to_type, assigned_to_id 
