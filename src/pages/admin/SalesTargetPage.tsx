@@ -133,6 +133,8 @@ export default function SalesTargetPage() {
         .from('sales_records')
         .select('team_leader_id, sale_date')
         .eq('payment_status', 'Paid')
+        .eq('package_status', 'Packaged')
+        .not('dsr_id', 'is', null)
         .gte('sale_date', twoYearsAgoISO)
         .lte('sale_date', today);
 

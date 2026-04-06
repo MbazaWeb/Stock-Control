@@ -160,6 +160,8 @@ export default function PublicSalesTargetPage() {
         .from('sales_records')
         .select('*')
         .eq('payment_status', 'Paid')
+        .eq('package_status', 'Packaged')
+        .not('dsr_id', 'is', null)
         .gte('sale_date', twoYearsAgoISO)
         .lte('sale_date', today);
 

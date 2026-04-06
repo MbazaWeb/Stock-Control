@@ -106,6 +106,8 @@ export default function TLSalesTargetPage() {
         .select('*')
         .eq('team_leader_id', tlId)
         .eq('payment_status', 'Paid')
+        .eq('package_status', 'Packaged')
+        .not('dsr_id', 'is', null)
         .gte('sale_date', twoYearsAgoISO)
         .lte('sale_date', today);
 

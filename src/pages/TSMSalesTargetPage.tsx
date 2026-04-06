@@ -127,6 +127,8 @@ export default function TSMSalesTargetPage() {
         .select('*')
         .eq('region_id', regionId)
         .eq('payment_status', 'Paid')
+        .eq('package_status', 'Packaged')
+        .not('dsr_id', 'is', null)
         .gte('sale_date', twoYearsAgoISO)
         .lte('sale_date', today);
 
