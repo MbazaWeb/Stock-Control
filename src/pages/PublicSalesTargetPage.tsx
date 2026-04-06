@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import { TrendingUp, TrendingDown, ChevronDown, ChevronRight } from 'lucide-react';
 import PublicLayout from '@/components/layout/PublicLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import { Badge } from '@/components/ui/badge';
@@ -36,6 +36,16 @@ interface Region {
   zone_id: string | null;
 }
 
+interface CaptainPerformance {
+  id: string;
+  name: string;
+  target_amount: number;
+  actual_sales: number;
+  performance_percent: number;
+  mtd_sales: number;
+  mtd_performance_percent: number;
+}
+
 interface TargetWithPerformance {
   id: string;
   name: string;
@@ -52,6 +62,8 @@ interface TargetWithPerformance {
   mtd_performance_percent: number;
   is_regional?: boolean;
   region_id?: string;
+  team_leader_id?: string;
+  captains?: CaptainPerformance[];
 }
 
 export default function PublicSalesTargetPage() {
@@ -68,6 +80,7 @@ export default function PublicSalesTargetPage() {
   const [regionalTargets, setRegionalTargets] = useState<TargetWithPerformance[]>([]);
   const [teamLeaderTargets, setTeamLeaderTargets] = useState<TargetWithPerformance[]>([]);
   const [allTargets, setAllTargets] = useState<TargetWithPerformance[]>([]);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const currentMonth = useMemo(() => getCurrentMonthYear(), []);
 
@@ -169,6 +182,32 @@ export default function PublicSalesTargetPage() {
       }
       console.log('Sales Records fetched:', salesData?.length || 0, 'records');
 
+      // Fetch captains (for team leader targets)
+      console.log('Fetching captains...');
+      const { data: captainsData, error: captainsError } = await supabase
+        .from('captains')
+        .select('id, name, team_leader_id')
+        .order('name', { ascending: true });
+
+      if (captainsError) {
+        console.error('Captains Error:', captainsError);
+        throw new Error(`Failed to fetch captains: ${captainsError.message}`);
+      }
+      console.log('Captains fetched:', captainsData?.length || 0, 'records');
+
+      // Fetch captain targets
+      console.log('Fetching captain_targets...');
+      const { data: captainTargetsData, error: captainTargetsError } = await supabase
+        .from('captain_targets')
+        .select('*')
+        .gte('year', new Date().getFullYear() - 2);
+
+      if (captainTargetsError) {
+        console.error('Captain Targets Error:', captainTargetsError);
+        throw new Error(`Failed to fetch captain_targets: ${captainTargetsError.message}`);
+      }
+      console.log('Captain Targets fetched:', captainTargetsData?.length || 0, 'records');
+
       console.log('All data fetched successfully. Processing...');
 
       // Calculate regional targets with performance
@@ -257,6 +296,60 @@ export default function PublicSalesTargetPage() {
           ? Math.round((mtd_sales / monthly_to_date) * 100)
           : 0;
 
+        // Calculate captain breakdown
+        const tlCaptains: CaptainPerformance[] = ((captainsData || []).filter(c => c.team_leader_id === target.team_leader_id) || []).map((captain) => {
+          // Get captain target for this month
+          const captainTarget = (captainTargetsData || []).find(
+            ct => ct.captain_id === captain.id &&
+                  ct.year === target.year &&
+                  ct.month === target.month
+          );
+
+          // Count captain's actual sales for this month
+          const captainActualSales = (salesData || []).filter(
+            (sale) =>
+              sale.captain_id === captain.id &&
+              new Date(sale.sale_date).getFullYear() === target.year &&
+              new Date(sale.sale_date).getMonth() === target.month
+          ).length;
+
+          const captainTarget_amount = captainTarget?.target_amount || 0;
+          const captainPerformance = captainTarget_amount > 0
+            ? Math.round((captainActualSales / captainTarget_amount) * 100)
+            : 0;
+
+          // MTD metrics for captain
+          const captainMtdSales = isCurrentMonth
+            ? (salesData || []).filter((sale) => {
+                const saleDate = new Date(sale.sale_date);
+                return (
+                  sale.captain_id === captain.id &&
+                  saleDate.getFullYear() === target.year &&
+                  saleDate.getMonth() === target.month &&
+                  saleDate <= today
+                );
+              }).length
+            : captainActualSales;
+
+          const captainMtdTarget = captainTarget_amount > 0
+            ? Math.ceil((captainTarget_amount / daysInMonth) * daysElapsed)
+            : 0;
+
+          const captainMtdPerformance = captainMtdTarget > 0
+            ? Math.round((captainMtdSales / captainMtdTarget) * 100)
+            : 0;
+
+          return {
+            id: captain.id,
+            name: captain.name,
+            target_amount: captainTarget_amount,
+            actual_sales: captainActualSales,
+            performance_percent: captainPerformance,
+            mtd_sales: captainMtdSales,
+            mtd_performance_percent: captainMtdPerformance,
+          };
+        });
+
         return {
           id: target.id,
           name: target.team_leaders?.name || 'Unknown',
@@ -273,6 +366,8 @@ export default function PublicSalesTargetPage() {
           mtd_performance_percent,
           is_regional: false,
           region_id: target.team_leaders?.region_id || undefined,
+          team_leader_id: target.team_leader_id,
+          captains: tlCaptains,
         };
       });
 
@@ -302,6 +397,17 @@ export default function PublicSalesTargetPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Toggle expanded row
+  const toggleExpanded = (targetId: string) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(targetId)) {
+      newExpanded.delete(targetId);
+    } else {
+      newExpanded.add(targetId);
+    }
+    setExpandedRows(newExpanded);
+  };
 
   // Filter regions by selected zone
   const filteredRegions = useMemo(() => {
@@ -650,6 +756,7 @@ export default function PublicSalesTargetPage() {
                   <Table>
                     <TableHeader>
                       <TableRow className="border-border/50">
+                        <TableHead className="w-8"></TableHead>
                         <TableHead>Team Leader</TableHead>
                         <TableHead>Month</TableHead>
                         <TableHead>Target</TableHead>
@@ -662,27 +769,70 @@ export default function PublicSalesTargetPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {teamLeadersOnly.map((target) => (
-                        <TableRow key={target.id} className="border-border/30 hover:bg-primary/5">
-                          <TableCell className="font-medium">{target.name}</TableCell>
-                          <TableCell>{getMonthName(target.month)} {target.year}</TableCell>
-                          <TableCell className="font-semibold">{target.target_amount.toLocaleString()}</TableCell>
-                          <TableCell className="font-semibold">{target.actual_sales.toLocaleString()}</TableCell>
-                          <TableCell>
-                            <Badge className={getPerformanceBadgeClass(target.performance_percent)}>
-                              {target.performance_percent}%
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{target.daily_target.toLocaleString()}</TableCell>
-                          <TableCell className="font-semibold">{target.monthly_to_date.toLocaleString()}</TableCell>
-                          <TableCell className="font-semibold">{target.mtd_sales.toLocaleString()}</TableCell>
-                          <TableCell>
-                            <Badge className={getPerformanceBadgeClass(target.mtd_performance_percent)}>
-                              {target.mtd_performance_percent}%
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {teamLeadersOnly.map((target) => {
+                        const isExpanded = expandedRows.has(target.id);
+                        return (
+                          <>
+                            <TableRow key={target.id} className="border-border/30 hover:bg-primary/5 cursor-pointer" onClick={() => toggleExpanded(target.id)}>
+                              <TableCell>
+                                <button className="p-1 hover:bg-border/30 rounded">
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4" />
+                                  )}
+                                </button>
+                              </TableCell>
+                              <TableCell className="font-medium">{target.name}</TableCell>
+                              <TableCell>{getMonthName(target.month)} {target.year}</TableCell>
+                              <TableCell className="font-semibold">{target.target_amount.toLocaleString()}</TableCell>
+                              <TableCell className="font-semibold">{target.actual_sales.toLocaleString()}</TableCell>
+                              <TableCell>
+                                <Badge className={getPerformanceBadgeClass(target.performance_percent)}>
+                                  {target.performance_percent}%
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{target.daily_target.toLocaleString()}</TableCell>
+                              <TableCell className="font-semibold">{target.monthly_to_date.toLocaleString()}</TableCell>
+                              <TableCell className="font-semibold">{target.mtd_sales.toLocaleString()}</TableCell>
+                              <TableCell>
+                                <Badge className={getPerformanceBadgeClass(target.mtd_performance_percent)}>
+                                  {target.mtd_performance_percent}%
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+
+                            {isExpanded && target.captains && target.captains.length > 0 && (
+                              <>
+                                {target.captains.map((captain) => (
+                                  <TableRow key={`${target.id}-${captain.id}`} className="border-border/20 bg-muted/30">
+                                    <TableCell></TableCell>
+                                    <TableCell colSpan={1} className="pl-8">
+                                      <span className="text-sm font-medium">{captain.name}</span>
+                                      <span className="text-xs text-muted-foreground ml-2">(Captain)</span>
+                                    </TableCell>
+                                    <TableCell></TableCell>
+                                    <TableCell className="text-sm">{captain.target_amount.toLocaleString()}</TableCell>
+                                    <TableCell className="font-semibold text-sm">{captain.actual_sales.toLocaleString()}</TableCell>
+                                    <TableCell>
+                                      <Badge className={getPerformanceBadgeClass(captain.performance_percent)}>
+                                        {captain.performance_percent}%
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell colSpan={2} className="text-center text-xs text-muted-foreground">-</TableCell>
+                                    <TableCell className="font-semibold text-sm">{captain.mtd_sales.toLocaleString()}</TableCell>
+                                    <TableCell>
+                                      <Badge className={getPerformanceBadgeClass(captain.mtd_performance_percent)}>
+                                        {captain.mtd_performance_percent}%
+                                      </Badge>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </>
+                            )}
+                          </>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>

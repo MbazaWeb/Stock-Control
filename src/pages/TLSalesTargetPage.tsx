@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import { TrendingUp, TrendingDown, ChevronDown, ChevronRight } from 'lucide-react';
 import AdminLayout from '@/components/layout/AdminLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +23,16 @@ import {
   Bar,
 } from 'recharts';
 
+interface CaptainPerformance {
+  id: string;
+  name: string;
+  target_amount: number;
+  actual_sales: number;
+  performance_percent: number;
+  mtd_sales: number;
+  mtd_performance_percent: number;
+}
+
 interface SalesTarget {
   id: string;
   team_leader_id: string;
@@ -41,6 +51,7 @@ interface TargetWithPerformance extends SalesTarget {
   mtd_gap: number;
   mtd_sales: number;
   mtd_performance_percent: number;
+  captains?: CaptainPerformance[];
 }
 
 export default function TLSalesTargetPage() {
@@ -48,6 +59,7 @@ export default function TLSalesTargetPage() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [targets, setTargets] = useState<TargetWithPerformance[]>([]);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const currentMonth = getCurrentMonthYear();
 
@@ -111,6 +123,24 @@ export default function TLSalesTargetPage() {
 
       if (salesError) throw salesError;
 
+      // Fetch captains under this team leader
+      const { data: captainsData, error: captainsError } = await supabase
+        .from('captains')
+        .select('id, name')
+        .eq('team_leader_id', tlId)
+        .order('name', { ascending: true });
+
+      if (captainsError) throw captainsError;
+
+      // Fetch captain targets
+      const { data: captainTargetsData, error: captainTargetsError } = await supabase
+        .from('captain_targets')
+        .select('*')
+        .eq('team_leader_id', tlId)
+        .gte('year', new Date().getFullYear() - 2);
+
+      if (captainTargetsError) throw captainTargetsError;
+
       // Calculate performance metrics
       const targetsWithPerformance: TargetWithPerformance[] = (targetsData || []).map((target) => {
         // Count actual sales for this month
@@ -150,6 +180,60 @@ export default function TLSalesTargetPage() {
 
         const mtd_gap = mtd_sales - monthly_to_date;
 
+        // Calculate captain breakdown
+        const captains: CaptainPerformance[] = (captainsData || []).map((captain) => {
+          // Get captain target for this month
+          const captainTarget = (captainTargetsData || []).find(
+            ct => ct.captain_id === captain.id &&
+                  ct.year === target.year &&
+                  ct.month === target.month
+          );
+
+          // Count captain's actual sales for this month
+          const captainActualSales = (salesData || []).filter(
+            (sale: Tables<'sales_records'>) =>
+              sale.captain_id === captain.id &&
+              new Date(sale.sale_date).getFullYear() === target.year &&
+              new Date(sale.sale_date).getMonth() === target.month
+          ).length;
+
+          const captainTarget_amount = captainTarget?.target_amount || 0;
+          const captainPerformance = captainTarget_amount > 0
+            ? Math.round((captainActualSales / captainTarget_amount) * 100)
+            : 0;
+
+          // MTD metrics for captain
+          const captainMtdSales = isCurrentMonth
+            ? (salesData || []).filter((sale: Tables<'sales_records'>) => {
+                const saleDate = new Date(sale.sale_date);
+                return (
+                  sale.captain_id === captain.id &&
+                  saleDate.getFullYear() === target.year &&
+                  saleDate.getMonth() === target.month &&
+                  saleDate <= today
+                );
+              }).length
+            : captainActualSales;
+
+          const captainMtdTarget = captainTarget_amount > 0
+            ? Math.ceil((captainTarget_amount / daysInMonth) * daysElapsed)
+            : 0;
+
+          const captainMtdPerformance = captainMtdTarget > 0
+            ? Math.round((captainMtdSales / captainMtdTarget) * 100)
+            : 0;
+
+          return {
+            id: captain.id,
+            name: captain.name,
+            target_amount: captainTarget_amount,
+            actual_sales: captainActualSales,
+            performance_percent: captainPerformance,
+            mtd_sales: captainMtdSales,
+            mtd_performance_percent: captainMtdPerformance,
+          };
+        });
+
         return {
           ...target,
           actual_sales,
@@ -160,6 +244,7 @@ export default function TLSalesTargetPage() {
           mtd_gap,
           mtd_sales,
           mtd_performance_percent,
+          captains,
         };
       });
 
@@ -181,6 +266,17 @@ export default function TLSalesTargetPage() {
       fetchData();
     }
   }, [user?.id, fetchData]);
+
+  // Toggle expanded row
+  const toggleExpanded = (targetId: string) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(targetId)) {
+      newExpanded.delete(targetId);
+    } else {
+      newExpanded.add(targetId);
+    }
+    setExpandedRows(newExpanded);
+  };
 
   // Calculate summary stats
   const summary = useMemo(() => {
@@ -292,6 +388,7 @@ export default function TLSalesTargetPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="border-border/50">
+                    <TableHead className="w-8"></TableHead>
                     <TableHead>Month</TableHead>
                     <TableHead>Target</TableHead>
                     <TableHead>Actual Sales</TableHead>
@@ -305,31 +402,73 @@ export default function TLSalesTargetPage() {
                 <TableBody>
                   {targets.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                         No targets available
                       </TableCell>
                     </TableRow>
                   ) : (
-                    targets.map((target) => (
-                      <TableRow key={target.id} className="border-border/30 hover:bg-primary/5">
-                        <TableCell>{getMonthName(target.month)} {target.year}</TableCell>
-                        <TableCell className="font-semibold">{target.target_amount.toLocaleString()}</TableCell>
-                        <TableCell className="font-semibold">{target.actual_sales.toLocaleString()}</TableCell>
-                        <TableCell>
-                          <Badge className={getPerformanceBadgeClass(target.performance_percent)}>
-                            {target.performance_percent}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{target.daily_target.toLocaleString()}</TableCell>
-                        <TableCell className="font-semibold">{target.monthly_to_date.toLocaleString()}</TableCell>
-                        <TableCell className="font-semibold">{target.mtd_sales.toLocaleString()}</TableCell>
-                        <TableCell>
-                          <Badge className={getPerformanceBadgeClass(target.mtd_performance_percent)}>
-                            {target.mtd_performance_percent}%
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    targets.map((target) => {
+                      const isExpanded = expandedRows.has(target.id);
+                      return (
+                        <>
+                          <TableRow key={target.id} className="border-border/30 hover:bg-primary/5 cursor-pointer" onClick={() => toggleExpanded(target.id)}>
+                            <TableCell>
+                              <button className="p-1 hover:bg-border/30 rounded">
+                                {isExpanded ? (
+                                  <ChevronDown className="h-4 w-4" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4" />
+                                )}
+                              </button>
+                            </TableCell>
+                            <TableCell>{getMonthName(target.month)} {target.year}</TableCell>
+                            <TableCell className="font-semibold">{target.target_amount.toLocaleString()}</TableCell>
+                            <TableCell className="font-semibold">{target.actual_sales.toLocaleString()}</TableCell>
+                            <TableCell>
+                              <Badge className={getPerformanceBadgeClass(target.performance_percent)}>
+                                {target.performance_percent}%
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{target.daily_target.toLocaleString()}</TableCell>
+                            <TableCell className="font-semibold">{target.monthly_to_date.toLocaleString()}</TableCell>
+                            <TableCell className="font-semibold">{target.mtd_sales.toLocaleString()}</TableCell>
+                            <TableCell>
+                              <Badge className={getPerformanceBadgeClass(target.mtd_performance_percent)}>
+                                {target.mtd_performance_percent}%
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+
+                          {isExpanded && target.captains && target.captains.length > 0 && (
+                            <>
+                              {target.captains.map((captain) => (
+                                <TableRow key={`${target.id}-${captain.id}`} className="border-border/20 bg-muted/30">
+                                  <TableCell></TableCell>
+                                  <TableCell colSpan={1} className="pl-8">
+                                    <span className="text-sm font-medium">{captain.name}</span>
+                                    <span className="text-xs text-muted-foreground ml-2">(Captain)</span>
+                                  </TableCell>
+                                  <TableCell className="text-sm">{captain.target_amount.toLocaleString()}</TableCell>
+                                  <TableCell className="font-semibold text-sm">{captain.actual_sales.toLocaleString()}</TableCell>
+                                  <TableCell>
+                                    <Badge className={getPerformanceBadgeClass(captain.performance_percent)}>
+                                      {captain.performance_percent}%
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell colSpan={2} className="text-center text-xs text-muted-foreground">-</TableCell>
+                                  <TableCell className="font-semibold text-sm">{captain.mtd_sales.toLocaleString()}</TableCell>
+                                  <TableCell>
+                                    <Badge className={getPerformanceBadgeClass(captain.mtd_performance_percent)}>
+                                      {captain.mtd_performance_percent}%
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </>
+                          )}
+                        </>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
