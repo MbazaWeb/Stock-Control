@@ -156,7 +156,13 @@ export default function SalesReportPage() {
     setLoading(true);
     try {
       let invQuery = supabase.from('inventory').select('*').limit(5000);
-      let salesQuery = supabase.from('sales_records').select('*').order('sale_date', { ascending: false }).limit(5000);
+      let salesQuery = supabase
+        .from('sales_records')
+        .select('*')
+        .gte('sale_date', salesDateRange.startDate)
+        .lte('sale_date', salesDateRange.endDate)
+        .order('sale_date', { ascending: false })
+        .limit(5000);
 
       if (isRegionalAdmin && assignedRegionIds.length > 0) {
         invQuery = invQuery.in('region_id', assignedRegionIds);
@@ -172,7 +178,7 @@ export default function SalesReportPage() {
     } finally {
       setLoading(false);
     }
-  }, [isRegionalAdmin, assignedRegionIds, toast]);
+  }, [isRegionalAdmin, assignedRegionIds, toast, salesDateRange.startDate, salesDateRange.endDate]);
 
   useEffect(() => {
     fetchLookups().then(() => fetchData());
