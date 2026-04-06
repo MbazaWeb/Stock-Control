@@ -42,6 +42,8 @@ interface CaptainPerformance {
   target_amount: number;
   actual_sales: number;
   performance_percent: number;
+  daily_target: number;
+  gap: number;
   mtd_sales: number;
   mtd_performance_percent: number;
 }
@@ -339,12 +341,18 @@ export default function PublicSalesTargetPage() {
             ? Math.round((captainMtdSales / captainMtdTarget) * 100)
             : 0;
 
+          // Calculate daily target and gap for captain
+          const captainDailyTarget = captainTarget_amount > 0 ? Math.ceil(captainTarget_amount / daysInMonth) : 0;
+          const captainGap = captainActualSales - captainTarget_amount;
+
           return {
             id: captain.id,
             name: captain.name,
             target_amount: captainTarget_amount,
             actual_sales: captainActualSales,
             performance_percent: captainPerformance,
+            daily_target: captainDailyTarget,
+            gap: captainGap,
             mtd_sales: captainMtdSales,
             mtd_performance_percent: captainMtdPerformance,
           };
@@ -819,7 +827,12 @@ export default function PublicSalesTargetPage() {
                                         {captain.performance_percent}%
                                       </Badge>
                                     </TableCell>
-                                    <TableCell colSpan={2} className="text-center text-xs text-muted-foreground">-</TableCell>
+                                    <TableCell className="text-sm">{captain.daily_target.toLocaleString()}</TableCell>
+                                    <TableCell className="text-sm">
+                                      <span className={captain.gap >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                                        {captain.gap >= 0 ? '+' : ''}{captain.gap.toLocaleString()}
+                                      </span>
+                                    </TableCell>
                                     <TableCell className="font-semibold text-sm">{captain.mtd_sales.toLocaleString()}</TableCell>
                                     <TableCell>
                                       <Badge className={getPerformanceBadgeClass(captain.mtd_performance_percent)}>
