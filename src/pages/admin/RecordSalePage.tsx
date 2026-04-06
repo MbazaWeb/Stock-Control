@@ -169,13 +169,6 @@ export default function RecordSalePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Debug: Log the date range being used for filtering
-      console.log('Sales Date Range:', {
-        preset: salesDatePreset,
-        startDate: salesDateRange.startDate,
-        endDate: salesDateRange.endDate,
-      });
-
       // Build sales query with region filtering for regional admins
       let salesQuery = supabase
         .from('sales_records')
@@ -198,13 +191,6 @@ export default function RecordSalePage() {
       ]);
 
       if (salesRes.error) throw salesRes.error;
-      
-      // Debug: Log the results returned from database
-      console.log('Sales returned from database:', {
-        count: salesRes.data?.length,
-        smartcard_8227398643: salesRes.data?.find(s => s.smartcard_number === '8227398643'),
-      });
-      
       if (salesRes.data) setSales(salesRes.data);
       if (zonesRes.data) setZones(zonesRes.data);
       if (captainRes.data) setCaptains(captainRes.data);

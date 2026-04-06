@@ -58,9 +58,7 @@ export const createSalesDateRange = (
   }
 
   // 'this_month' - uses today as endDate, not full month
-  const result = getDefaultSalesDateRange(baseDate);
-  console.log('createSalesDateRange this_month result:', result);
-  return result;
+  return getDefaultSalesDateRange(baseDate);
 };
 
 export const getSalesDatePresetLabel = (preset: SalesDatePreset) => {
