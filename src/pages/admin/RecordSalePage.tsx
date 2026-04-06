@@ -722,7 +722,13 @@ export default function RecordSalePage() {
     
     const matchesZone = zoneFilter === 'all' || s.zone_id === zoneFilter;
     const matchesRegion = regionFilter === 'all' || s.region_id === regionFilter;
-    return matchesSearch && matchesZone && matchesRegion;
+    
+    // CRITICAL: Client-side date range filter (safety check when server-side filter may fail)
+    // Ensure sale_date is within the selected date range
+    const saleDate = s.sale_date;
+    const matchesDateRange = saleDate >= salesDateRange.startDate && saleDate <= salesDateRange.endDate;
+    
+    return matchesSearch && matchesZone && matchesRegion && matchesDateRange;
   });
 
   // Pagination
